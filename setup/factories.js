@@ -6,10 +6,10 @@ const { User, Organization, Client, Supplier, Product, Order, OrderDetail, Invoi
 
 // ── Credenciales de los usuarios seed ────────────────────────────────────────
 const CREDENTIALS = {
-  superadmin: { email: 'superadmin@pymeflowec.com', password: 'SuperAdmin2026!' },
-  admin:      { email: 'andrea.morales@distcentral.com',      password: 'Password123!'     },
-  seller:     { email: 'sofia.benitez@distcenntral.com',     password: 'Password123!'    },
-  viewer:     { email: 'diego.ramirez@distcentral.com',     password: 'Password123!'    },
+  superadmin: { email: 'superadmin@test.com', password: 'SuperAdmin2026!' },
+  admin:      { email: 'admin@test.com',      password: 'Admin@1234'       },
+  seller:     { email: 'seller@test.com',     password: 'Seller@1234'    },
+  viewer:     { email: 'viewer@test.com',     password: 'Viewer@1234'    },
 };
 
 // ── Helpers de creación ───────────────────────────────────────────────────────

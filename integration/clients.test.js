@@ -49,7 +49,7 @@ describe('POST /api/clients', () => {
       .set('Authorization', `Bearer ${adminToken}`)
       .send({
         full_name:      'Cliente Integration Test',
-        identification: `IT${Date.now()}`,
+        identification: String(Date.now()).slice(-10),
         email:          `it${Date.now()}@test.com`,
       });
 
@@ -59,7 +59,7 @@ describe('POST /api/clients', () => {
   });
 
   it('409 – identificación duplicada', async () => {
-    const identification = `DUP${Date.now()}`;
+    const identification = String(Date.now()).slice(-10);
 
     const first = await request(app)
       .post('/api/clients')
@@ -102,7 +102,7 @@ describe('PUT /api/clients/:id', () => {
       .set('Authorization', `Bearer ${adminToken}`)
       .send({
         full_name:      'Actualizable',
-        identification: `UPD${Date.now()}`,
+        identification: String(Date.now()).slice(-10),
         email:          `upd${Date.now()}@test.com`,
       });
     clientId = res.body.data.id;
@@ -137,7 +137,7 @@ describe('DELETE /api/clients/:id', () => {
       .set('Authorization', `Bearer ${adminToken}`)
       .send({
         full_name:      'Para Eliminar',
-        identification: `DEL${Date.now()}`,
+        identification: String(Date.now()).slice(-10),
         email:          `del${Date.now()}@test.com`,
       });
     clientId = res.body.data.id;
