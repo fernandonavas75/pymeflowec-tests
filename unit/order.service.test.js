@@ -1,8 +1,8 @@
 'use strict';
 
 const {
-  createMockOrg, createMockClient, createMockProduct,
-  createMockOrder, createMockOrderDetail, createMockAuditLog, mockSequelize,
+  createMockClient, createMockProduct,
+  createMockOrder, createMockOrderDetail, mockSequelize,
 } = require('./helpers/mocks');
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
@@ -20,12 +20,12 @@ jest.mock('../../pymeflowec-backend/src/config/database', () => ({
 }));
 
 const mockModels = {
-  Order:       { findOne: jest.fn(), findAndCountAll: jest.fn(), create: jest.fn() },
-  OrderDetail: { findAll: jest.fn(), create: jest.fn() },
-  Product:     { findOne: jest.fn(), findByPk: jest.fn() },
-  Client:      { findOne: jest.fn() },
-  User:        { findOne: jest.fn() },
-  Organization:{ findByPk: jest.fn() },
+  Order:            { findOne: jest.fn(), findAndCountAll: jest.fn(), create: jest.fn() },
+  OrderDetail:      { findAll: jest.fn(), create: jest.fn() },
+  Product:          { findOne: jest.fn(), findByPk: jest.fn() },
+  Client:           { findOne: jest.fn() },
+  User:             { findOne: jest.fn() },
+  InventoryMovement:{ create: jest.fn().mockResolvedValue({}) },
 };
 jest.mock('../../pymeflowec-backend/src/models', () => mockModels);
 
@@ -34,7 +34,6 @@ const orderService = require('../../pymeflowec-backend/src/services/order.servic
 // ── Helpers ───────────────────────────────────────────────────────────────────
 beforeEach(() => {
   jest.clearAllMocks();
-  // Por defecto la transacción ejecuta el callback y lo resuelve
   mockSeq.transaction.mockImplementation(async (cb) => cb({ LOCK: { UPDATE: 'UPDATE' } }));
 });
 
@@ -46,25 +45,44 @@ describe('orderService.create', () => {
     items: [{ product_id: 1, quantity: 2 }],
   };
 
-  it('crea la orden con cálculo correcto de IVA (12%)', async () => {
-    const product = createMockProduct({ unit_price: '50.00', stock: 10 });
-    const org     = createMockOrg({ tax_rate: 0.12 });
-    const order   = createMockOrder({ id: 99, subtotal: 100, tax: 12, total: 112 });
+  it('crea la orden y el subtotal es correcto (IVA es 0 en cabecera, se aplica por ítem)', async () => {
+    const product = createMockProduct({ unit_price: '50.00', stock: 10, cost_price: '30.00' });
+    const order   = createMockOrder({ id: 99, subtotal: 100, tax: 0, total: 100 });
 
     mockModels.Client.findOne.mockResolvedValue(createMockClient());
-    mockModels.Organization.findByPk.mockResolvedValue(org);
     mockModels.Product.findOne.mockResolvedValue(product);
     mockModels.Order.create.mockResolvedValue(order);
     mockModels.OrderDetail.create.mockResolvedValue({});
-    // getById interno
     mockModels.Order.findOne.mockResolvedValue({ ...order, details: [], client: {}, user: {} });
 
     await orderService.create(validData, 1, 1);
 
     const orderCreateCall = mockModels.Order.create.mock.calls[0][0];
-    expect(orderCreateCall.subtotal).toBe(100);
-    expect(orderCreateCall.tax).toBe(12);
-    expect(orderCreateCall.total).toBe(112);
+    expect(orderCreateCall.subtotal).toBe(100); // 50 * 2
+    expect(orderCreateCall.tax).toBe(0);        // IVA en cabecera = 0 en v7
+    expect(orderCreateCall.total).toBe(100);
+  });
+
+  it('crea movimiento de inventario (salida) al crear la orden', async () => {
+    const product = createMockProduct({ unit_price: '10.00', stock: 10, cost_price: '5.00' });
+    const order   = createMockOrder({ id: 1 });
+
+    mockModels.Client.findOne.mockResolvedValue(createMockClient());
+    mockModels.Product.findOne.mockResolvedValue(product);
+    mockModels.Order.create.mockResolvedValue(order);
+    mockModels.OrderDetail.create.mockResolvedValue({});
+    mockModels.Order.findOne.mockResolvedValue({ ...order, details: [], client: {}, user: {} });
+
+    await orderService.create(validData, 1, 1);
+
+    expect(mockModels.InventoryMovement.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        movement_type: 'out',
+        quantity:      2,
+        product_id:    1,
+      }),
+      expect.anything()
+    );
   });
 
   it('lanza 400 si items está vacío', async () => {
@@ -74,42 +92,13 @@ describe('orderService.create', () => {
 
   it('lanza 404 si el cliente no existe', async () => {
     mockModels.Client.findOne.mockResolvedValue(null);
-    mockModels.Organization.findByPk.mockResolvedValue(createMockOrg());
     await expect(orderService.create(validData, 1, 1)).rejects.toMatchObject({ status: 404 });
   });
 
   it('lanza 404 si el producto no existe o está inactivo', async () => {
     mockModels.Client.findOne.mockResolvedValue(createMockClient());
-    mockModels.Organization.findByPk.mockResolvedValue(createMockOrg());
     mockModels.Product.findOne.mockResolvedValue(null);
     await expect(orderService.create(validData, 1, 1)).rejects.toMatchObject({ status: 404 });
-  });
-
-  it('lanza 400 si stock insuficiente', async () => {
-    mockModels.Client.findOne.mockResolvedValue(createMockClient());
-    mockModels.Organization.findByPk.mockResolvedValue(createMockOrg());
-    mockModels.Product.findOne.mockResolvedValue(createMockProduct({ stock: 1 }));
-    await expect(
-      orderService.create({ client_id: 1, items: [{ product_id: 1, quantity: 5 }] }, 1, 1)
-    ).rejects.toMatchObject({ status: 400 });
-  });
-
-  it('decrementa el stock al crear la orden', async () => {
-    const product = createMockProduct({ stock: 10, unit_price: '10.00' });
-    const order   = createMockOrder({ id: 1 });
-    mockModels.Client.findOne.mockResolvedValue(createMockClient());
-    mockModels.Organization.findByPk.mockResolvedValue(createMockOrg());
-    mockModels.Product.findOne.mockResolvedValue(product);
-    mockModels.Order.create.mockResolvedValue(order);
-    mockModels.OrderDetail.create.mockResolvedValue({});
-    mockModels.Order.findOne.mockResolvedValue({ ...order, details: [], client: {}, user: {} });
-
-    await orderService.create(validData, 1, 1);
-
-    expect(product.update).toHaveBeenCalledWith(
-      { stock: 8 }, // 10 - 2 (quantity del validData)
-      expect.anything()
-    );
   });
 });
 
@@ -118,8 +107,8 @@ describe('orderService.updateStatus', () => {
   it('seller puede confirmar su propia orden pendiente', async () => {
     const order = createMockOrder({ status: 'pending', user_id: 5 });
     mockModels.Order.findOne
-      .mockResolvedValueOnce(order)                         // primera llamada: find order
-      .mockResolvedValueOnce({ ...order, status: 'confirmed', details: [], client: {}, user: {} }); // getById
+      .mockResolvedValueOnce(order)
+      .mockResolvedValueOnce({ ...order, status: 'confirmed', details: [], client: {}, user: {} });
 
     await orderService.updateStatus(1, 'confirmed', 1, 5, 'seller');
     expect(order.update).toHaveBeenCalledWith({ status: 'confirmed' });
@@ -139,10 +128,10 @@ describe('orderService.updateStatus', () => {
       .rejects.toMatchObject({ status: 400 });
   });
 
-  it('cancelación restaura stock', async () => {
+  it('cancelación crea movimiento de inventario (entrada) por cada ítem', async () => {
     const order   = createMockOrder({ status: 'confirmed' });
     const product = createMockProduct({ stock: 5 });
-    const detail  = createMockOrderDetail({ quantity: 3 });
+    const detail  = createMockOrderDetail({ quantity: 3, product_id: 1 });
 
     mockModels.Order.findOne
       .mockResolvedValueOnce(order)
@@ -152,7 +141,15 @@ describe('orderService.updateStatus', () => {
 
     await orderService.updateStatus(1, 'cancelled', 1, 1, 'admin');
 
-    expect(product.update).toHaveBeenCalledWith({ stock: 8 }, expect.anything()); // 5 + 3
+    expect(mockModels.InventoryMovement.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        movement_type: 'in',
+        quantity:      3,
+        product_id:    1,
+      }),
+      expect.anything()
+    );
+    expect(order.update).toHaveBeenCalledWith({ status: 'cancelled' }, expect.anything());
   });
 
   it('lanza 404 si la orden no existe', async () => {

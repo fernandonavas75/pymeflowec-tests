@@ -5,16 +5,29 @@ const app     = require('../../pymeflowec-backend/src/app');
 
 // ── login ─────────────────────────────────────────────────────────────────────
 describe('POST /api/auth/login', () => {
-  it('200 – devuelve accessToken y refreshToken con credenciales válidas', async () => {
+  it('200 – devuelve access_token y refresh_token con credenciales válidas', async () => {
     const res = await request(app)
       .post('/api/auth/login')
       .send({ email: 'admin@test.com', password: 'Admin@1234' });
 
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
-    expect(res.body.data).toHaveProperty('accessToken');
-    expect(res.body.data).toHaveProperty('refreshToken');
-    expect(res.body.data.user.email).toBe('admin@test.com');
+    expect(res.body).toHaveProperty('access_token');
+    expect(res.body).toHaveProperty('refresh_token');
+    expect(res.body.user.email).toBe('admin@test.com');
+    // platform_staff debe ser null para un usuario de organización sin staff de plataforma
+    expect(res.body.user.platform_staff).toBeNull();
+  });
+
+  it('200 – platform_staff no es null cuando el usuario es staff de plataforma', async () => {
+    const res = await request(app)
+      .post('/api/auth/login')
+      .send({ email: 'platform_admin@test.com', password: 'PlatformAdmin2026!' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.user.platform_staff).not.toBeNull();
+    expect(res.body.user.platform_staff.can_write).toBe(true);
+    expect(res.body.user.platform_staff.can_read).toBe(true);
   });
 
   it('401 – credenciales incorrectas', async () => {
@@ -47,7 +60,7 @@ describe('GET /api/auth/me', () => {
     const res = await request(app)
       .post('/api/auth/login')
       .send({ email: 'admin@test.com', password: 'Admin@1234' });
-    token = res.body.data.accessToken;
+    token = res.body.access_token;
   });
 
   it('200 – devuelve el perfil del usuario autenticado', async () => {
@@ -73,16 +86,16 @@ describe('POST /api/auth/refresh', () => {
     const res = await request(app)
       .post('/api/auth/login')
       .send({ email: 'admin@test.com', password: 'Admin@1234' });
-    refreshToken = res.body.data.refreshToken;
+    refreshToken = res.body.refresh_token;
   });
 
-  it('200 – genera nuevo accessToken con refresh token válido', async () => {
+  it('200 – genera nuevo access_token con refresh token válido', async () => {
     const res = await request(app)
       .post('/api/auth/refresh')
       .send({ refresh_token: refreshToken });
 
     expect(res.status).toBe(200);
-    expect(res.body.data).toHaveProperty('accessToken');
+    expect(res.body).toHaveProperty('access_token');
   });
 
   it('401 – refresh token inválido', async () => {

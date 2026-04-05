@@ -20,6 +20,54 @@ const createMockRole = (overrides = {}) => ({
   ...overrides,
 });
 
+const createMockPlatformRole = (overrides = {}) => ({
+  id:        1,
+  code:      'platform_admin',
+  name:      'Platform Admin',
+  can_read:  true,
+  can_write: true,
+  ...overrides,
+});
+
+const createMockPlatformStaff = (overrides = {}) => ({
+  id:               1,
+  user_id:          1,
+  platform_role_id: 1,
+  is_active:        true,
+  assigned_by:      null,
+  notes:            null,
+  platformRole:     createMockPlatformRole(),
+  update:           jest.fn().mockResolvedValue(true),
+  reload:           jest.fn().mockImplementation(function () { return Promise.resolve(this); }),
+  ...overrides,
+});
+
+const createMockPlatformModule = (overrides = {}) => ({
+  id:          1,
+  code:        'inventory',
+  name:        'Inventario',
+  description: 'Gestión de inventario',
+  is_default:  false,
+  is_active:   true,
+  sort_order:  10,
+  dependencies: [],
+  ...overrides,
+});
+
+const createMockModuleRequest = (overrides = {}) => ({
+  id:              1,
+  organization_id: 1,
+  module_id:       1,
+  requested_by:    1,
+  status:          'pending',
+  reviewed_by:     null,
+  reviewed_at:     null,
+  rejection_reason: null,
+  notes:           null,
+  update:          jest.fn().mockResolvedValue(true),
+  ...overrides,
+});
+
 const createMockUser = (overrides = {}) => ({
   id:                  1,
   full_name:           'Test Admin',
@@ -30,6 +78,7 @@ const createMockUser = (overrides = {}) => ({
   role_id:             2,
   role:                createMockRole(),
   organization:        createMockOrg(),
+  platformStaff:       null,
   reset_token:         null,
   reset_token_expires: null,
   update:              jest.fn().mockResolvedValue(true),
@@ -110,6 +159,17 @@ const createMockAuditLog = (overrides = {}) => ({
   ...overrides,
 });
 
+const createMockPlatformAuditLog = (overrides = {}) => ({
+  id:          1,
+  staff_id:    1,
+  user_id:     1,
+  action:      'STAFF_ASSIGN',
+  description: '',
+  entity_type: 'platform_staff',
+  entity_id:   1,
+  ...overrides,
+});
+
 // Mock de sequelize.transaction que simplemente ejecuta el callback
 const createMockTransaction = () => ({
   LOCK: { UPDATE: 'UPDATE' },
@@ -118,11 +178,16 @@ const createMockTransaction = () => ({
 const mockSequelize = {
   transaction: jest.fn().mockImplementation(async (cb) => cb(createMockTransaction())),
   authenticate: jest.fn().mockResolvedValue(true),
+  query: jest.fn().mockResolvedValue([[{ approve_module_request: true }]]),
 };
 
 module.exports = {
   createMockOrg,
   createMockRole,
+  createMockPlatformRole,
+  createMockPlatformStaff,
+  createMockPlatformModule,
+  createMockModuleRequest,
   createMockUser,
   createMockClient,
   createMockSupplier,
@@ -131,6 +196,7 @@ module.exports = {
   createMockOrderDetail,
   createMockInvoice,
   createMockAuditLog,
+  createMockPlatformAuditLog,
   createMockTransaction,
   mockSequelize,
 };

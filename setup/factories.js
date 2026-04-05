@@ -1,15 +1,18 @@
 'use strict';
 
-const bcrypt = require('bcryptjs');
-const { User, Organization, Client, Supplier, Product, Order, OrderDetail, Invoice, InvoiceDetail, AuditLog } =
-  require('../../pymeflowec-backend/src/models');
+const {
+  User, Organization, Client, Supplier, Product, Order, OrderDetail,
+  Invoice, InvoiceDetail, AuditLog, ModuleRequest,
+} = require('../../pymeflowec-backend/src/models');
+const { sequelize } = require('../../pymeflowec-backend/src/config/database');
 
 // ── Credenciales de los usuarios seed ────────────────────────────────────────
 const CREDENTIALS = {
-  superadmin: { email: 'superadmin@test.com', password: 'SuperAdmin2026!' },
-  admin:      { email: 'admin@test.com',      password: 'Admin@1234'       },
-  seller:     { email: 'seller@test.com',     password: 'Seller@1234'    },
-  viewer:     { email: 'viewer@test.com',     password: 'Viewer@1234'    },
+  platform_admin: { email: 'platform_admin@test.com', password: 'PlatformAdmin2026!' },
+  superadmin:     { email: 'superadmin@test.com',     password: 'SuperAdmin2026!'    },
+  admin:          { email: 'admin@test.com',           password: 'Admin@1234'         },
+  seller:         { email: 'seller@test.com',          password: 'Seller@1234'        },
+  viewer:         { email: 'viewer@test.com',          password: 'Viewer@1234'        },
 };
 
 // ── Helpers de creación ───────────────────────────────────────────────────────
@@ -73,20 +76,52 @@ const createOrder = async (orgId, userId, clientId, productId, overrides = {}) =
   return order;
 };
 
+const createModuleRequest = async (orgId, moduleId, userId, overrides = {}) => {
+  return ModuleRequest.create({
+    organization_id: orgId,
+    module_id:       moduleId,
+    requested_by:    userId,
+    status:          'pending',
+    ...overrides,
+  });
+};
+
 // ── Limpieza ──────────────────────────────────────────────────────────────────
-// Elimina todos los registros de prueba creados en esta sesión.
-// Llama a esto en afterAll de cada test de integración.
 const cleanTestData = async (ids = {}) => {
-  if (ids.invoiceIds?.length)      await InvoiceDetail.destroy({ where: { invoice_id: ids.invoiceIds }, force: true });
-  if (ids.invoiceIds?.length)      await Invoice.destroy({ where: { id: ids.invoiceIds }, force: true });
-  if (ids.orderIds?.length)        await OrderDetail.destroy({ where: { order_id: ids.orderIds }, force: true });
-  if (ids.orderIds?.length)        await Order.destroy({ where: { id: ids.orderIds }, force: true });
-  if (ids.productIds?.length)      await Product.destroy({ where: { id: ids.productIds }, force: true });
-  if (ids.clientIds?.length)       await Client.destroy({ where: { id: ids.clientIds }, force: true });
-  if (ids.supplierIds?.length)     await Supplier.destroy({ where: { id: ids.supplierIds }, force: true });
-  if (ids.userIds?.length)         await User.destroy({ where: { id: ids.userIds }, force: true });
-  if (ids.organizationIds?.length) await Organization.destroy({ where: { id: ids.organizationIds }, force: true });
-  if (ids.auditLogOrgId)           await AuditLog.destroy({ where: { organization_id: ids.auditLogOrgId }, force: true });
+  if (ids.moduleRequestIds?.length) {
+    // module_requests has FORCE ROW SECURITY with no DELETE policy;
+    // use SET LOCAL row_security = off inside a transaction to bypass it.
+    // Also remove organization_modules FK references first.
+    const idList = ids.moduleRequestIds.join(',');
+    await sequelize.transaction(async (t) => {
+      await sequelize.query('SET LOCAL row_security = off', { transaction: t });
+      await sequelize.query(
+        `DELETE FROM organization_modules WHERE request_id IN (${idList})`,
+        { transaction: t }
+      );
+      await sequelize.query(`DELETE FROM module_requests WHERE id IN (${idList})`, { transaction: t });
+    });
+  }
+  if (ids.invoiceIds?.length)
+    await InvoiceDetail.destroy({ where: { invoice_id: ids.invoiceIds }, force: true });
+  if (ids.invoiceIds?.length)
+    await Invoice.destroy({ where: { id: ids.invoiceIds }, force: true });
+  if (ids.orderIds?.length)
+    await OrderDetail.destroy({ where: { order_id: ids.orderIds }, force: true });
+  if (ids.orderIds?.length)
+    await Order.destroy({ where: { id: ids.orderIds }, force: true });
+  if (ids.productIds?.length)
+    await Product.destroy({ where: { id: ids.productIds }, force: true });
+  if (ids.clientIds?.length)
+    await Client.destroy({ where: { id: ids.clientIds }, force: true });
+  if (ids.supplierIds?.length)
+    await Supplier.destroy({ where: { id: ids.supplierIds }, force: true });
+  if (ids.userIds?.length)
+    await User.destroy({ where: { id: ids.userIds }, force: true });
+  if (ids.organizationIds?.length)
+    await Organization.destroy({ where: { id: ids.organizationIds }, force: true });
+  if (ids.auditLogOrgId)
+    await AuditLog.destroy({ where: { organization_id: ids.auditLogOrgId }, force: true });
 };
 
 module.exports = {
@@ -95,5 +130,6 @@ module.exports = {
   createSupplier,
   createProduct,
   createOrder,
+  createModuleRequest,
   cleanTestData,
 };

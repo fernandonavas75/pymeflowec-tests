@@ -13,7 +13,11 @@ jest.mock('../../pymeflowec-backend/src/config/database', () => ({
 }));
 
 const mockModels = {
-  Product: { findOne: jest.fn(), findAndCountAll: jest.fn(), create: jest.fn() },
+  Product:          { findOne: jest.fn(), findAndCountAll: jest.fn(), create: jest.fn() },
+  Category:         { findOne: jest.fn() },
+  TaxRate:          {},
+  PriceHistory:     { create: jest.fn().mockResolvedValue({}) },
+  InventoryMovement:{ create: jest.fn().mockResolvedValue({}) },
 };
 jest.mock('../../pymeflowec-backend/src/models', () => mockModels);
 
@@ -46,24 +50,41 @@ describe('productService.create', () => {
   });
 });
 
-// ── updateStock ───────────────────────────────────────────────────────────────
-describe('productService.updateStock', () => {
-  it('actualiza el stock correctamente', async () => {
-    const product = createMockProduct();
+// ── adjust (reemplaza updateStock) ───────────────────────────────────────────
+// El stock ahora se gestiona vía InventoryMovement + trigger de BD.
+describe('productService.adjust', () => {
+  it('crea un movimiento de inventario correctamente', async () => {
+    const product = createMockProduct({ stock: 100 });
     mockModels.Product.findOne.mockResolvedValue(product);
 
-    await productService.updateStock(1, 25, 1);
-    expect(product.update).toHaveBeenCalledWith({ stock: 25 });
+    const result = await productService.adjust(1, 10, 'in', 'Reposición', 1, 1);
+
+    expect(mockModels.InventoryMovement.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organization_id: 1,
+        product_id:      1,
+        movement_type:   'in',
+        quantity:        10,
+      })
+    );
+    expect(result).toBeDefined();
   });
 
-  it('lanza 400 si el stock es negativo', async () => {
-    mockModels.Product.findOne.mockResolvedValue(createMockProduct());
-    await expect(productService.updateStock(1, -1, 1)).rejects.toMatchObject({ status: 400 });
+  it('crea movimiento de salida de inventario', async () => {
+    const product = createMockProduct({ stock: 50 });
+    mockModels.Product.findOne.mockResolvedValue(product);
+
+    await productService.adjust(1, 5, 'out', 'Venta manual', 1, 1);
+
+    expect(mockModels.InventoryMovement.create).toHaveBeenCalledWith(
+      expect.objectContaining({ movement_type: 'out', quantity: 5 })
+    );
   });
 
   it('lanza 404 si el producto no existe', async () => {
     mockModels.Product.findOne.mockResolvedValue(null);
-    await expect(productService.updateStock(999, 10, 1)).rejects.toMatchObject({ status: 404 });
+    await expect(productService.adjust(999, 10, 'in', null, 1, 1))
+      .rejects.toMatchObject({ status: 404 });
   });
 });
 
@@ -95,6 +116,7 @@ describe('productService.setStatus', () => {
 
   it('lanza 404 si el producto no existe', async () => {
     mockModels.Product.findOne.mockResolvedValue(null);
-    await expect(productService.setStatus(999, 'inactive', 1)).rejects.toMatchObject({ status: 404 });
+    await expect(productService.setStatus(999, 'inactive', 1))
+      .rejects.toMatchObject({ status: 404 });
   });
 });

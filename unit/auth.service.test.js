@@ -1,6 +1,9 @@
 'use strict';
 
-const { createMockUser, createMockOrg, createMockAuditLog, mockSequelize } = require('./helpers/mocks');
+const {
+  createMockUser, createMockOrg, createMockAuditLog, mockSequelize,
+  createMockPlatformStaff,
+} = require('./helpers/mocks');
 
 // ── Mocks (hoisted por Jest) ──────────────────────────────────────────────────
 jest.mock('../../pymeflowec-backend/src/config/database', () => ({
@@ -32,9 +35,12 @@ const mockModels = {
     findByPk:  jest.fn(),
     create:    jest.fn(),
   },
-  Role:         { findByPk: jest.fn() },
-  Organization: { findByPk: jest.fn() },
-  AuditLog:     { create: jest.fn().mockResolvedValue(createMockAuditLog()) },
+  Role:          { findByPk: jest.fn() },
+  Permission:    {},
+  Organization:  { findByPk: jest.fn() },
+  AuditLog:      { create: jest.fn().mockResolvedValue(createMockAuditLog()) },
+  PlatformStaff: { findOne: jest.fn() },
+  PlatformRole:  {},
 };
 jest.mock('../../pymeflowec-backend/src/models', () => mockModels);
 
@@ -56,12 +62,28 @@ describe('authService.login', () => {
 
     const result = await authService.login('admin@test.com', 'Admin@1234');
 
-    expect(result).toHaveProperty('accessToken', 'mock_token');
-    expect(result).toHaveProperty('refreshToken', 'mock_token');
+    // El servicio retorna access_token y refresh_token (snake_case)
+    expect(result).toHaveProperty('access_token', 'mock_token');
+    expect(result).toHaveProperty('refresh_token', 'mock_token');
     expect(result.user.email).toBe('admin@test.com');
+    expect(result.user.platform_staff).toBeNull();
     expect(mockModels.AuditLog.create).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'LOGIN' })
     );
+  });
+
+  it('incluye platform_staff en la respuesta cuando el usuario es staff activo', async () => {
+    const platformStaff = createMockPlatformStaff();
+    const user          = createMockUser({ platformStaff });
+    mockModels.User.findOne.mockResolvedValue(user);
+    bcrypt.compare.mockResolvedValue(true);
+
+    const result = await authService.login('admin@test.com', 'Admin@1234');
+
+    expect(result.user.platform_staff).not.toBeNull();
+    expect(result.user.platform_staff.can_write).toBe(true);
+    expect(result.user.platform_staff.can_read).toBe(true);
+    expect(result.user.platform_staff.role).toBe('platform_admin');
   });
 
   it('lanza 401 si el usuario no existe', async () => {
@@ -148,14 +170,14 @@ describe('authService.resetPassword', () => {
 
 // ── refresh ───────────────────────────────────────────────────────────────────
 describe('authService.refresh', () => {
-  it('retorna nuevo accessToken con refresh token válido', async () => {
+  it('retorna nuevo access_token con refresh token válido', async () => {
     const user = createMockUser();
-    jwt.verify.mockReturnValue({ id: 1, role: 'admin', organization_id: 1 });
+    jwt.verify.mockReturnValue({ id: 1, organization_id: 1 });
     mockModels.User.findOne.mockResolvedValue(user);
 
     const result = await authService.refresh('valid_refresh_token');
 
-    expect(result).toHaveProperty('accessToken', 'mock_token');
+    expect(result).toHaveProperty('access_token', 'mock_token');
   });
 
   it('lanza 401 si el refresh token es inválido', async () => {

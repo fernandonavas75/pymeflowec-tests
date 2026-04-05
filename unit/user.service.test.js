@@ -18,9 +18,9 @@ jest.mock('bcryptjs', () => ({
 }));
 
 const mockModels = {
-  User:         { findOne: jest.fn(), findAndCountAll: jest.fn(), create: jest.fn(), findByPk: jest.fn() },
-  Role:         { findByPk: jest.fn() },
-  Organization: { findByPk: jest.fn() },
+  User:       { findOne: jest.fn(), findAndCountAll: jest.fn(), create: jest.fn(), findByPk: jest.fn() },
+  Role:       { findOne: jest.fn() },   // v7: findOne con filtro organization_id
+  Permission: {},
 };
 jest.mock('../../pymeflowec-backend/src/models', () => mockModels);
 
@@ -34,11 +34,11 @@ beforeEach(() => jest.clearAllMocks());
 describe('userService.create', () => {
   const validData = { full_name: 'Nuevo Usuario', email: 'nuevo@test.com', password: 'Pass@1234', role_id: 2 };
 
-  it('crea usuario correctamente', async () => {
-    const role = createMockRole({ name: 'seller' });
+  it('crea usuario correctamente y hace hash de la contraseña', async () => {
+    const role = createMockRole({ name: 'Vendedor' });
     const user = createMockUser({ id: 5 });
 
-    mockModels.Role.findByPk.mockResolvedValue(role);
+    mockModels.Role.findOne.mockResolvedValue(role);
     mockModels.User.findOne
       .mockResolvedValueOnce(null)  // email no existe
       .mockResolvedValueOnce(user); // getById al final
@@ -52,18 +52,13 @@ describe('userService.create', () => {
     );
   });
 
-  it('lanza 404 si el rol no existe', async () => {
-    mockModels.Role.findByPk.mockResolvedValue(null);
+  it('lanza 404 si el rol no existe en la organización', async () => {
+    mockModels.Role.findOne.mockResolvedValue(null);
     await expect(userService.create(validData, 1)).rejects.toMatchObject({ status: 404 });
   });
 
-  it('lanza 403 si se intenta asignar rol superadmin', async () => {
-    mockModels.Role.findByPk.mockResolvedValue(createMockRole({ name: 'superadmin' }));
-    await expect(userService.create(validData, 1)).rejects.toMatchObject({ status: 403 });
-  });
-
   it('lanza 409 si el email ya está registrado', async () => {
-    mockModels.Role.findByPk.mockResolvedValue(createMockRole({ name: 'seller' }));
+    mockModels.Role.findOne.mockResolvedValue(createMockRole({ name: 'Vendedor' }));
     mockModels.User.findOne.mockResolvedValue(createMockUser()); // email ya existe
     await expect(userService.create(validData, 1)).rejects.toMatchObject({ status: 409 });
   });
@@ -95,11 +90,12 @@ describe('userService.changePassword', () => {
       .rejects.toMatchObject({ status: 404 });
   });
 
-  it('lanza 400 si la nueva contraseña tiene menos de 8 caracteres', async () => {
-    mockModels.User.findOne.mockResolvedValue(createMockUser());
+  it('permite cambiar a cualquier contraseña (validación de longitud en validator, no en service)', async () => {
+    const user = createMockUser();
+    mockModels.User.findOne.mockResolvedValue(user);
     bcrypt.compare.mockResolvedValue(true);
-    await expect(userService.changePassword(1, 'OldPass@123', 'short', 1))
-      .rejects.toMatchObject({ status: 400 });
+    await userService.changePassword(1, 'OldPass@123', 'short', 1);
+    expect(user.update).toHaveBeenCalled();
   });
 });
 
@@ -108,8 +104,8 @@ describe('userService.setStatus', () => {
   it('actualiza el estado del usuario', async () => {
     const user = createMockUser();
     mockModels.User.findOne
-      .mockResolvedValueOnce(user)   // findOne para encontrar el user
-      .mockResolvedValueOnce(user);  // getById al final
+      .mockResolvedValueOnce(user)  // findOne para encontrar el user
+      .mockResolvedValueOnce(user); // getById al final
 
     await userService.setStatus(1, 'inactive', 1);
     expect(user.update).toHaveBeenCalledWith({ status: 'inactive' });

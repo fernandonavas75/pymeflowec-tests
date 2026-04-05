@@ -6,6 +6,12 @@ module.exports = {
       displayName:  'unit',
       testMatch:    ['<rootDir>/unit/**/*.test.js'],
       testEnvironment: 'node',
+      // Fuerza que bcryptjs y jsonwebtoken resuelvan SIEMPRE al mismo módulo
+      // (el del backend), para que jest.mock() intercepte correctamente.
+      moduleNameMapper: {
+        '^bcryptjs$':     '<rootDir>/../pymeflowec-backend/node_modules/bcryptjs',
+        '^jsonwebtoken$': '<rootDir>/../pymeflowec-backend/node_modules/jsonwebtoken',
+      },
     },
     {
       displayName:  'integration',
