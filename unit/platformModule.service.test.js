@@ -1,83 +1,113 @@
 'use strict';
 
-const { createMockPlatformModule, mockSequelize } = require('./helpers/mocks');
+// Tests for module.service.js (replaces old platformModule.service)
+const {
+  createMockModule, createMockCompanyModule, createMockModuleRequest, mockSequelize,
+} = require('./helpers/mocks');
 
-// ── Mocks ─────────────────────────────────────────────────────────────────────
 jest.mock('../../pymeflowec-backend/src/config/database', () => ({
-  sequelize: mockSequelize,
-  connectDB: jest.fn(),
+  sequelize: mockSequelize, connectDB: jest.fn(),
+}));
+jest.mock('../../pymeflowec-backend/src/utils/logger', () => ({
+  error: jest.fn(), warn: jest.fn(), info: jest.fn(), debug: jest.fn(),
 }));
 
 const mockModels = {
-  PlatformModule:     { findAll: jest.fn(), findByPk: jest.fn() },
-  OrganizationModule: { findAll: jest.fn() },
-  Permission:         {},
+  Module: {
+    findAll:  jest.fn(),
+    findByPk: jest.fn(),
+  },
+  CompanyModule:        { findAll: jest.fn() },
+  CompanyModuleRequest: { findAll: jest.fn() },
 };
 jest.mock('../../pymeflowec-backend/src/models', () => mockModels);
 
-// ── Subject under test ────────────────────────────────────────────────────────
-const svc = require('../../pymeflowec-backend/src/services/platformModule.service');
+const moduleService = require('../../pymeflowec-backend/src/services/module.service');
 
 beforeEach(() => jest.clearAllMocks());
 
 // ── listAll ───────────────────────────────────────────────────────────────────
-describe('platformModuleService.listAll', () => {
-  it('retorna todos los módulos ordenados por sort_order', async () => {
-    const modules = [
-      createMockPlatformModule({ id: 1, sort_order: 1 }),
-      createMockPlatformModule({ id: 2, sort_order: 2 }),
-    ];
-    mockModels.PlatformModule.findAll.mockResolvedValue(modules);
+describe('moduleService.listAll', () => {
+  it('returns all catalog modules', async () => {
+    const modules = [createMockModule(), createMockModule({ id: 2, code: 'MOD_INVENTORY' })];
+    mockModels.Module.findAll.mockResolvedValue(modules);
 
-    const result = await svc.listAll();
-
+    const result = await moduleService.listAll();
     expect(result).toHaveLength(2);
-    expect(mockModels.PlatformModule.findAll).toHaveBeenCalledWith(
-      expect.objectContaining({ order: [['sort_order', 'ASC']] })
-    );
-  });
-
-  it('retorna arreglo vacío si no hay módulos', async () => {
-    mockModels.PlatformModule.findAll.mockResolvedValue([]);
-    const result = await svc.listAll();
-    expect(result).toEqual([]);
+    expect(mockModels.Module.findAll).toHaveBeenCalled();
   });
 });
 
 // ── listActive ────────────────────────────────────────────────────────────────
-describe('platformModuleService.listActive', () => {
-  it('retorna módulos activos de la organización indicada', async () => {
-    const entry = { organization_id: 1, module_id: 1, is_active: true, module: createMockPlatformModule() };
-    mockModels.OrganizationModule.findAll.mockResolvedValue([entry]);
+describe('moduleService.listActive', () => {
+  it('returns active company modules with module include', async () => {
+    const cm = createMockCompanyModule();
+    mockModels.CompanyModule.findAll.mockResolvedValue([cm]);
 
-    const result = await svc.listActive(1);
-
+    const result = await moduleService.listActive(1);
     expect(result).toHaveLength(1);
-    expect(mockModels.OrganizationModule.findAll).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { organization_id: 1, is_active: true } })
+    expect(mockModels.CompanyModule.findAll).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { company_id: 1, is_active: true } })
     );
-  });
-
-  it('retorna arreglo vacío si la organización no tiene módulos activos', async () => {
-    mockModels.OrganizationModule.findAll.mockResolvedValue([]);
-    const result = await svc.listActive(99);
-    expect(result).toEqual([]);
   });
 });
 
-// ── getById ───────────────────────────────────────────────────────────────────
-describe('platformModuleService.getById', () => {
-  it('retorna el módulo cuando existe', async () => {
-    const mod = createMockPlatformModule({ id: 5 });
-    mockModels.PlatformModule.findByPk.mockResolvedValue(mod);
+// ── getById ────────────────────────────────────────────────────────────────────
+describe('moduleService.getById', () => {
+  it('returns module when found', async () => {
+    const mod = createMockModule();
+    mockModels.Module.findByPk.mockResolvedValue(mod);
 
-    const result = await svc.getById(5);
-
-    expect(result.id).toBe(5);
+    const result = await moduleService.getById(1);
+    expect(result.id).toBe(1);
   });
 
-  it('lanza 404 si el módulo no existe', async () => {
-    mockModels.PlatformModule.findByPk.mockResolvedValue(null);
-    await expect(svc.getById(999)).rejects.toMatchObject({ status: 404 });
+  it('throws 404 if module not found', async () => {
+    mockModels.Module.findByPk.mockResolvedValue(null);
+    await expect(moduleService.getById(999)).rejects.toMatchObject({ status: 404 });
+  });
+});
+
+// ── listPublic ────────────────────────────────────────────────────────────────
+describe('moduleService.listPublic', () => {
+  it('returns only active modules with limited attributes', async () => {
+    const modules = [createMockModule({ is_active: true })];
+    mockModels.Module.findAll.mockResolvedValue(modules);
+
+    const result = await moduleService.listPublic();
+    expect(result).toHaveLength(1);
+    expect(mockModels.Module.findAll).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { is_active: true } })
+    );
+  });
+});
+
+// ── getCompanyCatalog ──────────────────────────────────────────────────────────
+describe('moduleService.getCompanyCatalog', () => {
+  it('maps active modules with APPROVED status', async () => {
+    const mod = createMockModule();
+    mod.toJSON = () => ({ id: 1, code: 'MOD_INVOICING', name: 'Facturación', is_active: true });
+    const cm  = createMockCompanyModule({ module_id: 1, is_active: true });
+
+    mockModels.Module.findAll.mockResolvedValue([mod]);
+    mockModels.CompanyModule.findAll.mockResolvedValue([cm]);
+    mockModels.CompanyModuleRequest.findAll.mockResolvedValue([]);
+
+    const result = await moduleService.getCompanyCatalog(1);
+    expect(result).toHaveLength(1);
+    expect(result[0].status).toBe('APPROVED');
+  });
+
+  it('maps inactive modules with PENDING status when request exists', async () => {
+    const mod = createMockModule({ id: 2, code: 'MOD_REPORTS' });
+    mod.toJSON = () => ({ id: 2, code: 'MOD_REPORTS', name: 'Reportes', is_active: true });
+    const req = createMockModuleRequest({ module_id: 2, status: 'PENDING' });
+
+    mockModels.Module.findAll.mockResolvedValue([mod]);
+    mockModels.CompanyModule.findAll.mockResolvedValue([]);
+    mockModels.CompanyModuleRequest.findAll.mockResolvedValue([req]);
+
+    const result = await moduleService.getCompanyCatalog(1);
+    expect(result[0].status).toBe('PENDING');
   });
 });

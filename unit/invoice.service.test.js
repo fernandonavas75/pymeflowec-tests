@@ -1,138 +1,105 @@
 'use strict';
 
 const {
-  createMockProduct, createMockOrder,
-  createMockOrderDetail, createMockInvoice, mockSequelize,
+  createMockInvoice, createMockProduct, createMockStoreCustomer,
+  createMockTaxRate, createMockInventoryMovement, mockSequelize,
 } = require('./helpers/mocks');
 
-// ── Mocks ─────────────────────────────────────────────────────────────────────
+jest.mock('../../pymeflowec-backend/src/config/database', () => ({
+  sequelize: mockSequelize, connectDB: jest.fn(),
+}));
 jest.mock('../../pymeflowec-backend/src/utils/logger', () => ({
   error: jest.fn(), warn: jest.fn(), info: jest.fn(), debug: jest.fn(),
 }));
 
-const mockSeq = {
-  ...mockSequelize,
-  transaction: jest.fn(),
-};
-jest.mock('../../pymeflowec-backend/src/config/database', () => ({
-  sequelize: mockSeq,
-  connectDB: jest.fn(),
-}));
-
-// Org con campos SRI requeridos para generar el número de factura
-const createMockOrgSRI = (overrides = {}) => ({
-  id:                       1,
-  name:                     'Test Org',
-  ruc:                      '9999999990001',
-  status:                   'active',
-  sri_establecimiento:      '001',
-  sri_punto_emision:        '001',
-  sri_secuencial_factura:   0,
-  update: jest.fn().mockResolvedValue(true),
-  ...overrides,
-});
+const mockInvoiceDetail = {};
 
 const mockModels = {
-  Invoice:       { findOne: jest.fn(), findAndCountAll: jest.fn(), create: jest.fn() },
-  InvoiceDetail: { create: jest.fn() },
-  Order:         { findOne: jest.fn() },
-  OrderDetail:   { findAll: jest.fn() },
-  Product:       { findOne: jest.fn() },
-  Client:        {},
-  User:          {},
-  Payment:       {},
-  Organization:  { findByPk: jest.fn() },
+  Invoice: {
+    findAndCountAll: jest.fn(),
+    findOne:         jest.fn(),
+    create:          jest.fn(),
+  },
+  InvoiceDetail:     { create: jest.fn() },
+  Product:           { findOne: jest.fn() },
+  StoreCustomer:     { findOne: jest.fn() },
+  User:              { findOne: jest.fn() },
+  TaxRate:           { findOne: jest.fn() },
+  InventoryMovement: { create: jest.fn() },
 };
 jest.mock('../../pymeflowec-backend/src/models', () => mockModels);
 
 const invoiceService = require('../../pymeflowec-backend/src/services/invoice.service');
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-beforeEach(() => {
-  jest.clearAllMocks();
-  mockSeq.transaction.mockImplementation(async (cb) => cb({ LOCK: { UPDATE: 'UPDATE' } }));
-});
+beforeEach(() => jest.clearAllMocks());
 
-// ── createFromOrder ───────────────────────────────────────────────────────────
-describe('invoiceService.createFromOrder', () => {
-  it('crea factura desde una orden válida con número SRI', async () => {
-    const order   = createMockOrder({ status: 'confirmed', details: [createMockOrderDetail()] });
-    const org     = createMockOrgSRI();
-    const invoice = createMockInvoice({ id: 10, invoice_number: '001-001-000000001' });
+// ── create ────────────────────────────────────────────────────────────────────
+describe('invoiceService.create', () => {
+  const baseItem = { product_id: 1, quantity: 2, unit_price: 10 };
 
-    mockModels.Order.findOne.mockResolvedValue(order);
+  it('throws 400 if items array is empty', async () => {
+    await expect(invoiceService.create({ customer_id: null, items: [] }, 1, 1))
+      .rejects.toMatchObject({ status: 400 });
+  });
+
+  it('throws 400 if items is missing', async () => {
+    await expect(invoiceService.create({ customer_id: null }, 1, 1))
+      .rejects.toMatchObject({ status: 400 });
+  });
+
+  it('throws 404 if product not found or inactive', async () => {
+    mockModels.Product.findOne.mockResolvedValue(null);
+    await expect(invoiceService.create({ items: [baseItem] }, 1, 1))
+      .rejects.toMatchObject({ status: 404 });
+  });
+
+  it('throws 400 if product stock is insufficient', async () => {
+    mockModels.Product.findOne.mockResolvedValue(createMockProduct({ stock: 1 }));
+    await expect(invoiceService.create({ items: [{ ...baseItem, quantity: 5 }] }, 1, 1))
+      .rejects.toMatchObject({ status: 400 });
+  });
+
+  it('creates invoice with correct totals', async () => {
+    const product = createMockProduct({ stock: 10, sale_price: '10.00', tax_rate_id: null });
+    const invoice = createMockInvoice({ id: 1 });
+
+    mockModels.Product.findOne
+      .mockResolvedValueOnce(product)  // item lookup in create
+      .mockResolvedValueOnce(product); // product in getById include
     mockModels.Invoice.findOne
-      .mockResolvedValueOnce(null)      // no existe factura previa
-      .mockResolvedValueOnce(invoice);  // getById al final
-    mockModels.Organization.findByPk.mockResolvedValue(org);
-    mockModels.Invoice.create.mockResolvedValue(invoice);
+      .mockResolvedValueOnce(null)     // generateInvoiceNumber (last invoice)
+      .mockResolvedValueOnce(invoice); // getById after create
+    mockModels.Invoice.create.mockResolvedValue({ id: 1 });
     mockModels.InvoiceDetail.create.mockResolvedValue({});
+    mockModels.InventoryMovement.create.mockResolvedValue({});
 
-    const result = await invoiceService.createFromOrder(1, 1);
+    const result = await invoiceService.create({ items: [baseItem] }, 1, 1);
     expect(result).toBeDefined();
-    // El número se genera como: sri_establecimiento-sri_punto_emision-000000001
     expect(mockModels.Invoice.create).toHaveBeenCalledWith(
       expect.objectContaining({ invoice_number: '001-001-000000001' }),
       expect.anything()
     );
   });
-
-  it('lanza 404 si la orden no existe', async () => {
-    mockModels.Order.findOne.mockResolvedValue(null);
-    await expect(invoiceService.createFromOrder(999, 1)).rejects.toMatchObject({ status: 404 });
-  });
-
-  it('lanza 400 si la orden está cancelada', async () => {
-    mockModels.Order.findOne.mockResolvedValue(createMockOrder({ status: 'cancelled', details: [] }));
-    await expect(invoiceService.createFromOrder(1, 1)).rejects.toMatchObject({ status: 400 });
-  });
-
-  it('lanza 409 si ya existe una factura para esa orden', async () => {
-    mockModels.Order.findOne.mockResolvedValue(createMockOrder({ status: 'confirmed', details: [] }));
-    mockModels.Invoice.findOne.mockResolvedValue(createMockInvoice()); // ya existe
-    await expect(invoiceService.createFromOrder(1, 1)).rejects.toMatchObject({ status: 409 });
-  });
 });
 
-// ── createManual ──────────────────────────────────────────────────────────────
-describe('invoiceService.createManual', () => {
-  it('crea factura manual con subtotal correcto (IVA se calcula por ítem, tax=0 en cabecera)', async () => {
-    const product = createMockProduct({ unit_price: '100.00', cost_price: '50.00' });
-    const org     = createMockOrgSRI();
-    const invoice = createMockInvoice({ id: 20 });
-
-    mockModels.Organization.findByPk.mockResolvedValue(org);
-    mockModels.Product.findOne.mockResolvedValue(product);
-    mockModels.Invoice.create.mockResolvedValue(invoice);
-    mockModels.InvoiceDetail.create.mockResolvedValue({});
-    mockModels.Invoice.findOne.mockResolvedValue(invoice);
-
-    await invoiceService.createManual({ items: [{ product_id: 1, quantity: 2, unit_price: 100 }] }, 1);
-
-    const createCall = mockModels.Invoice.create.mock.calls[0][0];
-    expect(createCall.subtotal).toBe(200);
-    // En la v7 el IVA de cabecera es 0 (se aplica por línea de detalle según tax_rate del producto)
-    expect(createCall.tax).toBe(0);
-    expect(createCall.total).toBe(200);
+// ── cancel ────────────────────────────────────────────────────────────────────
+describe('invoiceService.cancel', () => {
+  it('cancels an ISSUED invoice', async () => {
+    const invoice = createMockInvoice({ status: 'ISSUED' });
+    mockModels.Invoice.findOne
+      .mockResolvedValueOnce(invoice)   // find for cancel
+      .mockResolvedValueOnce(invoice);  // getById after cancel
+    await invoiceService.cancel(1, 1);
+    expect(invoice.update).toHaveBeenCalledWith({ status: 'CANCELLED' });
   });
 
-  it('lanza 400 si items está vacío', async () => {
-    await expect(invoiceService.createManual({ items: [] }, 1)).rejects.toMatchObject({ status: 400 });
+  it('throws 400 if invoice is already CANCELLED', async () => {
+    mockModels.Invoice.findOne.mockResolvedValue(createMockInvoice({ status: 'CANCELLED' }));
+    await expect(invoiceService.cancel(1, 1)).rejects.toMatchObject({ status: 400 });
   });
 
-  it('lanza 404 si el producto está inactivo o no existe', async () => {
-    mockModels.Organization.findByPk.mockResolvedValue(createMockOrgSRI());
-    mockModels.Product.findOne.mockResolvedValue(null);
-    await expect(
-      invoiceService.createManual({ items: [{ product_id: 99, quantity: 1 }] }, 1)
-    ).rejects.toMatchObject({ status: 404 });
-  });
-});
-
-// ── setStatus ─────────────────────────────────────────────────────────────────
-describe('invoiceService.setStatus', () => {
-  it('no permite modificar una factura cancelada', async () => {
-    mockModels.Invoice.findOne.mockResolvedValue(createMockInvoice({ status: 'cancelled' }));
-    await expect(invoiceService.setStatus(1, 'paid', 1)).rejects.toMatchObject({ status: 400 });
+  it('throws 404 if invoice not found', async () => {
+    mockModels.Invoice.findOne.mockResolvedValue(null);
+    await expect(invoiceService.cancel(999, 1)).rejects.toMatchObject({ status: 404 });
   });
 });

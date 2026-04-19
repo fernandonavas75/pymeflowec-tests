@@ -1,16 +1,14 @@
 'use strict';
 
+// Tests for /api/platform/users and /api/platform/roles (platform user management)
 const request      = require('supertest');
 const app          = require('../../pymeflowec-backend/src/app');
 const { getToken } = require('./helpers/auth');
 const { User }     = require('../../pymeflowec-backend/src/models');
-const { sequelize } = require('../../pymeflowec-backend/src/config/database');
 
 let platformAdminToken;
 let adminToken;
-
-// IDs de staff creados durante los tests para limpieza posterior
-const createdStaffIds = [];
+const createdUserIds = [];
 
 beforeAll(async () => {
   [platformAdminToken, adminToken] = await Promise.all([
@@ -20,156 +18,152 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  if (createdStaffIds.length) {
-    const ids = createdStaffIds.join(',');
-    // Remove audit log references before deleting staff records
-    await sequelize.query(`DELETE FROM platform_audit_logs WHERE staff_id IN (${ids})`);
-    await sequelize.query(`DELETE FROM platform_staff WHERE id IN (${ids})`);
+  if (createdUserIds.length) {
+    await User.destroy({ where: { id: createdUserIds }, force: true });
   }
 });
 
-// ── GET /api/platform/staff/roles ────────────────────────────────────────────
-describe('GET /api/platform/staff/roles', () => {
-  it('200 – platform admin lista roles de plataforma', async () => {
+// ── GET /api/platform/roles ───────────────────────────────────────────────────
+describe('GET /api/platform/roles', () => {
+  it('200 – platform admin lists platform roles', async () => {
     const res = await request(app)
-      .get('/api/platform/staff/roles')
+      .get('/api/platform/roles')
       .set('Authorization', `Bearer ${platformAdminToken}`);
 
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
     expect(Array.isArray(res.body.data)).toBe(true);
     expect(res.body.data.length).toBeGreaterThan(0);
+    expect(res.body.data[0]).toHaveProperty('scope', 'PLATFORM');
   });
 
-  it('403 – usuario de organización no puede listar roles', async () => {
+  it('403 – store admin cannot list platform roles', async () => {
     const res = await request(app)
-      .get('/api/platform/staff/roles')
+      .get('/api/platform/roles')
       .set('Authorization', `Bearer ${adminToken}`);
-
     expect(res.status).toBe(403);
   });
 
-  it('401 – sin token', async () => {
-    const res = await request(app).get('/api/platform/staff/roles');
+  it('401 – no token', async () => {
+    const res = await request(app).get('/api/platform/roles');
     expect(res.status).toBe(401);
   });
 });
 
-// ── GET /api/platform/staff ───────────────────────────────────────────────────
-describe('GET /api/platform/staff', () => {
-  it('200 – platform admin lista todo el staff', async () => {
+// ── GET /api/platform/users ───────────────────────────────────────────────────
+describe('GET /api/platform/users', () => {
+  it('200 – platform admin lists platform users', async () => {
     const res = await request(app)
-      .get('/api/platform/staff')
+      .get('/api/platform/users')
       .set('Authorization', `Bearer ${platformAdminToken}`);
 
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
     expect(Array.isArray(res.body.data)).toBe(true);
-    // Al menos el platform_admin semilla debe estar
-    expect(res.body.data.length).toBeGreaterThan(0);
+    // At minimum the seed platform_admin and platform_support should appear
+    expect(res.body.data.length).toBeGreaterThanOrEqual(2);
   });
 
-  it('403 – usuario de organización no puede listar staff', async () => {
+  it('403 – store admin cannot list platform users', async () => {
     const res = await request(app)
-      .get('/api/platform/staff')
+      .get('/api/platform/users')
       .set('Authorization', `Bearer ${adminToken}`);
-
     expect(res.status).toBe(403);
   });
 });
 
-// ── POST /api/platform/staff ─────────────────────────────────────────────────
-describe('POST /api/platform/staff', () => {
-  let targetUserId;
+// ── POST /api/platform/users ──────────────────────────────────────────────────
+describe('POST /api/platform/users', () => {
+  let platformRoleId;
 
   beforeAll(async () => {
-    // Usar seller (no admin) para no interferir con platformModules.test.js,
-    // que verifica que admin no tenga acceso de plataforma.
-    const user = await User.findOne({ where: { email: 'seller@test.com' } });
-    targetUserId = user.id;
+    const res = await request(app)
+      .get('/api/platform/roles')
+      .set('Authorization', `Bearer ${platformAdminToken}`);
+    // Use PLATFORM_SUPPORT role for the new user
+    const supportRole = res.body.data.find(r => r.name === 'PLATFORM_SUPPORT');
+    platformRoleId = supportRole?.id ?? res.body.data[0]?.id;
   });
 
-  it('201 – platform admin asigna usuario como staff', async () => {
+  it('201 – platform admin creates a new platform user', async () => {
+    const ts  = Date.now();
     const res = await request(app)
-      .post('/api/platform/staff')
+      .post('/api/platform/users')
       .set('Authorization', `Bearer ${platformAdminToken}`)
-      .send({ user_id: targetUserId, platform_role_id: 2, notes: 'Test support staff' });
+      .send({
+        full_name: `Support User ${ts}`,
+        email:     `support${ts}@test.com`,
+        password:  'Support@1234',
+        role_id:   platformRoleId,
+      });
 
     expect(res.status).toBe(201);
     expect(res.body.data).toHaveProperty('id');
-    createdStaffIds.push(res.body.data.id);
+    expect(res.body.data.role.scope).toBe('PLATFORM');
+    createdUserIds.push(res.body.data.id);
   });
 
-  it('422 – falta user_id', async () => {
+  it('409 – duplicate email', async () => {
     const res = await request(app)
-      .post('/api/platform/staff')
+      .post('/api/platform/users')
       .set('Authorization', `Bearer ${platformAdminToken}`)
-      .send({ platform_role_id: 1 });
-
-    expect(res.status).toBe(422);
+      .send({
+        full_name: 'Dup',
+        email:     'platform_admin@test.com',
+        password:  'Password@123',
+        role_id:   platformRoleId,
+      });
+    expect(res.status).toBe(409);
   });
 
-  it('422 – falta platform_role_id', async () => {
+  it('400 – missing required fields', async () => {
     const res = await request(app)
-      .post('/api/platform/staff')
+      .post('/api/platform/users')
       .set('Authorization', `Bearer ${platformAdminToken}`)
-      .send({ user_id: targetUserId });
-
-    expect(res.status).toBe(422);
+      .send({ full_name: 'Incomplete' });
+    expect(res.status).toBe(400);
   });
 
-  it('403 – usuario de organización no puede asignar staff', async () => {
+  it('403 – store admin cannot create platform users', async () => {
     const res = await request(app)
-      .post('/api/platform/staff')
+      .post('/api/platform/users')
       .set('Authorization', `Bearer ${adminToken}`)
-      .send({ user_id: targetUserId, platform_role_id: 2 });
-
+      .send({ full_name: 'X', email: 'x@t.com', password: 'P@ssword1', role_id: platformRoleId });
     expect(res.status).toBe(403);
   });
 });
 
-// ── PATCH /api/platform/staff/:id/revoke ─────────────────────────────────────
-describe('PATCH /api/platform/staff/:id/revoke', () => {
-  let staffId;
+// ── PATCH /api/platform/users/:id/deactivate ─────────────────────────────────
+describe('PATCH /api/platform/users/:id/deactivate', () => {
+  let targetUserId;
 
   beforeAll(async () => {
-    // Usar el staff creado en el bloque POST si existe, si no crear uno nuevo
-    if (createdStaffIds.length) {
-      staffId = createdStaffIds[createdStaffIds.length - 1];
-    } else {
-      const user = await User.findOne({ where: { email: 'viewer@test.com' } });
-      const res  = await request(app)
-        .post('/api/platform/staff')
-        .set('Authorization', `Bearer ${platformAdminToken}`)
-        .send({ user_id: user.id, platform_role_id: 2 });
-      staffId = res.body.data?.id;
-      if (staffId) createdStaffIds.push(staffId);
+    if (createdUserIds.length) {
+      targetUserId = createdUserIds[createdUserIds.length - 1];
     }
   });
 
-  it('200 – platform admin revoca acceso de staff', async () => {
-    if (!staffId) return;
+  it('200 – platform admin deactivates a platform user', async () => {
+    if (!targetUserId) return;
     const res = await request(app)
-      .patch(`/api/platform/staff/${staffId}/revoke`)
+      .patch(`/api/platform/users/${targetUserId}/deactivate`)
       .set('Authorization', `Bearer ${platformAdminToken}`);
 
     expect(res.status).toBe(200);
-    expect(res.body.success).toBe(true);
+    expect(res.body.data.status).toBe('INACTIVE');
   });
 
-  it('403 – usuario de organización no puede revocar staff', async () => {
+  it('403 – store admin cannot change platform user status', async () => {
     const res = await request(app)
-      .patch('/api/platform/staff/1/revoke')
+      .patch('/api/platform/users/1/deactivate')
       .set('Authorization', `Bearer ${adminToken}`);
-
     expect(res.status).toBe(403);
   });
 
-  it('404 – staff inexistente', async () => {
+  it('404 – user not found', async () => {
     const res = await request(app)
-      .patch('/api/platform/staff/999999/revoke')
+      .patch('/api/platform/users/999999/deactivate')
       .set('Authorization', `Bearer ${platformAdminToken}`);
-
     expect(res.status).toBe(404);
   });
 });

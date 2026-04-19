@@ -1,18 +1,20 @@
 'use strict';
 
-const request = require('supertest');
-const app     = require('../../pymeflowec-backend/src/app');
+const request      = require('supertest');
+const app          = require('../../pymeflowec-backend/src/app');
 const { getToken } = require('./helpers/auth');
 const { cleanTestData } = require('../setup/factories');
 
 let adminToken;
-let viewerToken;
+let sellerToken;
+let warehouseToken;
 const createdIds = { supplierIds: [] };
 
 beforeAll(async () => {
-  [adminToken, viewerToken] = await Promise.all([
+  [adminToken, sellerToken, warehouseToken] = await Promise.all([
     getToken('admin'),
-    getToken('viewer'),
+    getToken('seller'),
+    getToken('warehouse'),
   ]);
 });
 
@@ -22,7 +24,7 @@ afterAll(async () => {
 
 // ── GET /api/suppliers ────────────────────────────────────────────────────────
 describe('GET /api/suppliers', () => {
-  it('200 – devuelve lista paginada', async () => {
+  it('200 – admin gets paginated list', async () => {
     const res = await request(app)
       .get('/api/suppliers')
       .set('Authorization', `Bearer ${adminToken}`);
@@ -30,9 +32,24 @@ describe('GET /api/suppliers', () => {
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
     expect(res.body).toHaveProperty('pagination');
+    expect(Array.isArray(res.body.data)).toBe(true);
   });
 
-  it('401 – sin token', async () => {
+  it('200 – seller can also list suppliers', async () => {
+    const res = await request(app)
+      .get('/api/suppliers')
+      .set('Authorization', `Bearer ${sellerToken}`);
+    expect(res.status).toBe(200);
+  });
+
+  it('200 – warehouse can also list suppliers', async () => {
+    const res = await request(app)
+      .get('/api/suppliers')
+      .set('Authorization', `Bearer ${warehouseToken}`);
+    expect(res.status).toBe(200);
+  });
+
+  it('401 – no token', async () => {
     const res = await request(app).get('/api/suppliers');
     expect(res.status).toBe(401);
   });
@@ -40,33 +57,34 @@ describe('GET /api/suppliers', () => {
 
 // ── POST /api/suppliers ───────────────────────────────────────────────────────
 describe('POST /api/suppliers', () => {
-  it('201 – admin crea proveedor', async () => {
+  it('201 – admin creates supplier', async () => {
     const res = await request(app)
       .post('/api/suppliers')
       .set('Authorization', `Bearer ${adminToken}`)
       .send({
-        business_name: `Proveedor IT ${Date.now()}`,
-        email:         `prov${Date.now()}@test.com`,
+        name:  `Proveedor IT ${Date.now()}`,
+        email: `prov${Date.now()}@test.com`,
       });
 
     expect(res.status).toBe(201);
     expect(res.body.data).toHaveProperty('id');
+    expect(res.body.data).toHaveProperty('name');
     createdIds.supplierIds.push(res.body.data.id);
   });
 
-  it('422 – falta business_name', async () => {
+  it('403 – seller cannot create suppliers', async () => {
     const res = await request(app)
       .post('/api/suppliers')
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({ email: 'sin_nombre@test.com' });
-    expect(res.status).toBe(422);
+      .set('Authorization', `Bearer ${sellerToken}`)
+      .send({ name: 'Test', email: 'v@test.com' });
+    expect(res.status).toBe(403);
   });
 
-  it('403 – viewer no puede crear proveedores', async () => {
+  it('403 – warehouse cannot create suppliers', async () => {
     const res = await request(app)
       .post('/api/suppliers')
-      .set('Authorization', `Bearer ${viewerToken}`)
-      .send({ business_name: 'Test', email: 'v@test.com' });
+      .set('Authorization', `Bearer ${warehouseToken}`)
+      .send({ name: 'Test', email: 'wh@test.com' });
     expect(res.status).toBe(403);
   });
 });
@@ -79,26 +97,35 @@ describe('PUT /api/suppliers/:id', () => {
     const res = await request(app)
       .post('/api/suppliers')
       .set('Authorization', `Bearer ${adminToken}`)
-      .send({ business_name: `Actualizable ${Date.now()}`, email: `upd${Date.now()}@test.com` });
+      .send({ name: `Actualizable ${Date.now()}`, email: `upd${Date.now()}@test.com` });
     supplierId = res.body.data.id;
     createdIds.supplierIds.push(supplierId);
   });
 
-  it('200 – actualiza el proveedor', async () => {
+  it('200 – admin updates supplier name', async () => {
     const res = await request(app)
       .put(`/api/suppliers/${supplierId}`)
       .set('Authorization', `Bearer ${adminToken}`)
-      .send({ business_name: 'Nombre Nuevo S.A.' });
+      .send({ name: 'Nombre Nuevo S.A.' });
+
     expect(res.status).toBe(200);
-    expect(res.body.data.business_name).toBe('Nombre Nuevo S.A.');
+    expect(res.body.data.name).toBe('Nombre Nuevo S.A.');
   });
 
-  it('404 – proveedor inexistente', async () => {
+  it('404 – supplier not found', async () => {
     const res = await request(app)
       .put('/api/suppliers/999999')
       .set('Authorization', `Bearer ${adminToken}`)
-      .send({ business_name: 'X' });
+      .send({ name: 'X' });
     expect(res.status).toBe(404);
+  });
+
+  it('403 – seller cannot update suppliers', async () => {
+    const res = await request(app)
+      .put(`/api/suppliers/${supplierId}`)
+      .set('Authorization', `Bearer ${sellerToken}`)
+      .send({ name: 'Intento Seller' });
+    expect(res.status).toBe(403);
   });
 });
 
@@ -110,14 +137,21 @@ describe('DELETE /api/suppliers/:id', () => {
     const res = await request(app)
       .post('/api/suppliers')
       .set('Authorization', `Bearer ${adminToken}`)
-      .send({ business_name: `Para Eliminar ${Date.now()}`, email: `del${Date.now()}@test.com` });
+      .send({ name: `Para Eliminar ${Date.now()}`, email: `del${Date.now()}@test.com` });
     supplierId = res.body.data.id;
   });
 
-  it('204 – elimina el proveedor (soft delete)', async () => {
+  it('204 – admin deletes supplier', async () => {
     const res = await request(app)
       .delete(`/api/suppliers/${supplierId}`)
       .set('Authorization', `Bearer ${adminToken}`);
     expect(res.status).toBe(204);
+  });
+
+  it('403 – seller cannot delete suppliers', async () => {
+    const res = await request(app)
+      .delete('/api/suppliers/1')
+      .set('Authorization', `Bearer ${sellerToken}`);
+    expect(res.status).toBe(403);
   });
 });

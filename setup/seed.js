@@ -1,18 +1,14 @@
 'use strict';
 
 /**
- * Script de siembra para la base de datos de test.
- * Ejecutar UNA SOLA VEZ antes de correr los tests de integración:
+ * Seed script for the test database (schema v4).
+ * Run once before integration tests:  npm run seed
  *
- *   npm run seed
- *
- * Requisitos previos:
- *   1. Crear la BD:  CREATE DATABASE pymeflowec_test;
- *   2. Aplicar el schema v7:  psql -U postgres pymeflowec_test < schema_v8_full.sql
- *   3. Actualizar .env.test si es necesario (DB_NAME, DB_PASSWORD, etc.)
- *
- * NOTA: platform_roles y platform_modules ya vienen en el schema.
- * Este script solo crea: organización, usuarios y staff de plataforma.
+ * Prerequisites:
+ *   1. CREATE DATABASE pymeflowec_test;
+ *   2. psql -U postgres pymeflowec_test < schema_tesis_v4.sql
+ *   3. psql -U postgres pymeflowec_test < seeds_tesis_v4.sql  (loads global roles & modules)
+ *   4. Check .env.test (DB_NAME=pymeflowec_test)
  */
 
 const path = require('path');
@@ -20,138 +16,141 @@ require('dotenv').config({ path: path.join(__dirname, '../.env.test'), override:
 
 const bcrypt = require('bcryptjs');
 const { sequelize } = require('../../pymeflowec-backend/src/config/database');
-const { Organization, User, Role, PlatformStaff } =
-  require('../../pymeflowec-backend/src/models');
+const {
+  Company, Role, User, StoreCustomer, TaxRate, Supplier, CompanyModule, Module,
+} = require('../../pymeflowec-backend/src/models');
+
+const TEST_RUC = '9999900000001';
 
 async function seed() {
   try {
     await sequelize.authenticate();
-    console.log('[seed] Conexión a BD de test establecida.');
+    console.log('[seed] DB connection established.');
 
-    // ── 1. Organización de test ──────────────────────────────────────────────
-    const [org, orgCreated] = await Organization.findOrCreate({
-      where: { ruc: '9999999990001' },
-      defaults: {
-        name:   'Organización Test',
-        ruc:    '9999999990001',
-        email:  'org@test.com',
-        status: 'active',
-      },
-    });
-    console.log(`[seed] Organización: id=${org.id} (nueva=${orgCreated})`);
+    // ── 1. Global roles (must exist from seeds_tesis_v4.sql) ────────────────────
+    const roles = await Role.findAll();
+    const roleMap = Object.fromEntries(roles.map(r => [r.name, r.id]));
+    console.log('[seed] Roles found:', Object.keys(roleMap).join(', '));
 
-    // ── 2. Onboarding: crea roles, cliente genérico, categorías y activa
-    //       módulos por defecto para la org. Solo si es nueva.
-    if (orgCreated) {
-      await sequelize.query(
-        'SELECT onboard_organization(:orgId, NULL)',
-        { replacements: { orgId: org.id } }
-      );
-      console.log('[seed] onboard_organization ejecutado.');
-    } else {
-      console.log('[seed] Organización ya existía – onboarding omitido.');
+    const required = ['PLATFORM_ADMIN', 'PLATFORM_SUPPORT', 'STORE_ADMIN', 'STORE_SELLER', 'STORE_WAREHOUSE'];
+    for (const r of required) {
+      if (!roleMap[r]) throw new Error(`Role "${r}" not found. Run seeds_tesis_v4.sql first.`);
     }
 
-    // ── 3. Buscar roles creados por onboarding para esta org ─────────────────
-    const roles = await Role.findAll({ where: { organization_id: org.id } });
-    const roleMap = Object.fromEntries(roles.map(r => [r.name, r.id]));
-    console.log('[seed] Roles de la org:', JSON.stringify(roleMap));
+    // ── 2. Test company ──────────────────────────────────────────────────────────
+    let company = await Company.findOne({ where: { ruc: TEST_RUC } });
+    if (!company) {
+      company = await Company.create({
+        name:   'Empresa Test',
+        ruc:    TEST_RUC,
+        email:  'test@empresa.com',
+        status: 'ACTIVE',
+      });
+      console.log(`[seed] Company created: id=${company.id}`);
+    } else {
+      console.log(`[seed] Company already exists: id=${company.id}`);
+    }
 
-    // Elegir el rol con más privilegios disponible para los usuarios de plataforma
-    // (necesitan un role_id válido aunque no pertenezcan a la org)
-    const adminRoleId = roleMap['admin'] ?? roleMap['Administrador'] ?? roles[0]?.id;
-    if (!adminRoleId) throw new Error('No se encontró ningún rol para la org de test.');
-
-    // ── 4. Usuario platform_admin (sin org, staff de plataforma can_write) ───
-    const [platformAdmin] = await User.findOrCreate({
-      where: { email: 'platform_admin@test.com' },
-      defaults: {
-        full_name:       'Platform Admin Test',
-        email:           'platform_admin@test.com',
-        password_hash:   await bcrypt.hash('PlatformAdmin2026!', 12),
-        role_id:         adminRoleId,
-        organization_id: null,
-        status:          'active',
-      },
+    // ── 3. Consumidor Final (required per company) ───────────────────────────────
+    const finalConsumer = await StoreCustomer.findOne({
+      where: { company_id: company.id, customer_type: 'FINAL_CONSUMER' },
     });
-    await PlatformStaff.findOrCreate({
-      where: { user_id: platformAdmin.id },
-      defaults: {
-        platform_role_id: 1, // platform_admin (can_write=true) – viene en el schema
-        assigned_by:      null,
-        is_active:        true,
-      },
-    });
-    console.log(`[seed] Platform admin: id=${platformAdmin.id}`);
+    if (!finalConsumer) {
+      await StoreCustomer.create({
+        company_id:      company.id,
+        customer_type:   'FINAL_CONSUMER',
+        document_number: '9999999999999',
+        full_name:       'Consumidor Final',
+      });
+      console.log('[seed] Consumidor Final created.');
+    }
 
-    // ── 5. Superadmin (sin org) ───────────────────────────────────────────────
-    const [superadmin] = await User.findOrCreate({
-      where: { email: 'superadmin@test.com' },
-      defaults: {
-        full_name:       'Super Admin Test',
-        email:           'superadmin@test.com',
-        password_hash:   await bcrypt.hash('SuperAdmin2026!', 12),
-        role_id:         adminRoleId,
-        organization_id: null,
-        status:          'active',
-      },
-    });
-    console.log(`[seed] Superadmin: id=${superadmin.id}`);
+    // ── 4. Tax rate ──────────────────────────────────────────────────────────────
+    const taxRate = await TaxRate.findOne({ where: { company_id: company.id, is_active: true } });
+    if (!taxRate) {
+      await TaxRate.create({
+        company_id: company.id,
+        tax_name:   'IVA 15%',
+        percentage: 15.00,
+        is_active:  true,
+        valid_from: '2024-01-01',
+      });
+      console.log('[seed] TaxRate created.');
+    }
 
-    // Los roles creados por onboard_organization se llaman:
-    // "Administrador", "Vendedor", "Consulta"
-    // ── 6. Admin de organización ──────────────────────────────────────────────
-    const adminId = roleMap['Administrador'] ?? adminRoleId;
-    const [admin] = await User.findOrCreate({
-      where: { email: 'admin@test.com' },
-      defaults: {
-        full_name:       'Admin Test',
-        email:           'admin@test.com',
-        password_hash:   await bcrypt.hash('Admin@1234', 12),
-        role_id:         adminId,
-        organization_id: org.id,
-        status:          'active',
-      },
-    });
-    console.log(`[seed] Admin: id=${admin.id}, role="${Object.keys(roleMap).find(k => roleMap[k] === adminId)}"`);
+    // ── 5. Test supplier ─────────────────────────────────────────────────────────
+    const supplier = await Supplier.findOne({ where: { company_id: company.id } });
+    if (!supplier) {
+      await Supplier.create({
+        company_id: company.id,
+        name:       'Proveedor Test S.A.',
+        ruc:        '1799900000001',
+        email:      'prov@test.com',
+      });
+      console.log('[seed] Supplier created.');
+    }
 
-    // ── 7. Seller ─────────────────────────────────────────────────────────────
-    const sellerId = roleMap['Vendedor'] ?? adminRoleId;
-    const [seller] = await User.findOrCreate({
-      where: { email: 'seller@test.com' },
-      defaults: {
-        full_name:       'Seller Test',
-        email:           'seller@test.com',
-        password_hash:   await bcrypt.hash('Seller@1234', 12),
-        role_id:         sellerId,
-        organization_id: org.id,
-        status:          'active',
-      },
-    });
-    console.log(`[seed] Seller: id=${seller.id}, role="${Object.keys(roleMap).find(k => roleMap[k] === sellerId)}"`);
+    // ── 6. Activate modules for test company (first 5 modules) ──────────────────
+    const activeCodes = ['MOD_INVOICING', 'MOD_INVENTORY', 'MOD_PRODUCTS', 'MOD_SUPPLIERS', 'MOD_TAX'];
+    const modules = await Module.findAll({ where: { is_active: true }, order: [['id', 'ASC']] });
+    for (const mod of modules) {
+      if (!activeCodes.includes(mod.code)) continue;
+      const [cm] = await CompanyModule.findOrCreate({
+        where:    { company_id: company.id, module_id: mod.id },
+        defaults: { is_active: true },
+      });
+      if (!cm.is_active) await cm.update({ is_active: true });
+    }
+    console.log('[seed] Company modules activated.');
 
-    // ── 8. Viewer ─────────────────────────────────────────────────────────────
-    const viewerId = roleMap['Consulta'] ?? adminRoleId;
-    const [viewer] = await User.findOrCreate({
-      where: { email: 'viewer@test.com' },
-      defaults: {
-        full_name:       'Viewer Test',
-        email:           'viewer@test.com',
-        password_hash:   await bcrypt.hash('Viewer@1234', 12),
-        role_id:         viewerId,
-        organization_id: org.id,
-        status:          'active',
-      },
-    });
-    console.log(`[seed] Viewer: id=${viewer.id}, role="${Object.keys(roleMap).find(k => roleMap[k] === viewerId)}"`);
+    // ── 7. Platform users (no company) ──────────────────────────────────────────
+    const platformUsers = [
+      { email: 'platform_admin@test.com',   full_name: 'Platform Admin Test',   password: 'PlatformAdmin2026!',   role: 'PLATFORM_ADMIN' },
+      { email: 'platform_support@test.com', full_name: 'Platform Support Test', password: 'PlatformSupport2026!', role: 'PLATFORM_SUPPORT' },
+    ];
+    for (const pu of platformUsers) {
+      const [user, created] = await User.findOrCreate({
+        where: { email: pu.email },
+        defaults: {
+          full_name:     pu.full_name,
+          password_hash: await bcrypt.hash(pu.password, 10),
+          role_id:       roleMap[pu.role],
+          company_id:    null,
+          status:        'ACTIVE',
+        },
+      });
+      if (!created) await user.update({ role_id: roleMap[pu.role], company_id: null, status: 'ACTIVE' });
+      console.log(`[seed] ${pu.role}: ${pu.email} (new=${created})`);
+    }
 
-    console.log('\n[seed] ✅ Base de datos de test lista.');
-    console.log('[seed] Credenciales:');
-    console.log('  platform_admin@test.com  / PlatformAdmin2026!  (platform staff can_write)');
-    console.log('  superadmin@test.com      / SuperAdmin2026!');
-    console.log('  admin@test.com           / Admin@1234');
-    console.log('  seller@test.com          / Seller@1234');
-    console.log('  viewer@test.com          / Viewer@1234');
+    // ── 8. Store users (belong to test company) ──────────────────────────────────
+    const storeUsers = [
+      { email: 'admin@test.com',     full_name: 'Admin Test',     password: 'Admin@1234',     role: 'STORE_ADMIN' },
+      { email: 'seller@test.com',    full_name: 'Seller Test',    password: 'Seller@1234',    role: 'STORE_SELLER' },
+      { email: 'warehouse@test.com', full_name: 'Warehouse Test', password: 'Warehouse@1234', role: 'STORE_WAREHOUSE' },
+    ];
+    for (const su of storeUsers) {
+      const [user, created] = await User.findOrCreate({
+        where: { email: su.email },
+        defaults: {
+          full_name:     su.full_name,
+          password_hash: await bcrypt.hash(su.password, 10),
+          role_id:       roleMap[su.role],
+          company_id:    company.id,
+          status:        'ACTIVE',
+        },
+      });
+      if (!created) await user.update({ role_id: roleMap[su.role], company_id: company.id, status: 'ACTIVE' });
+      console.log(`[seed] ${su.role}: ${su.email} (new=${created})`);
+    }
+
+    console.log('\n[seed] ✅ Test database ready.');
+    console.log('[seed] Credentials:');
+    console.log('  platform_admin@test.com    / PlatformAdmin2026!    (PLATFORM_ADMIN)');
+    console.log('  platform_support@test.com  / PlatformSupport2026!  (PLATFORM_SUPPORT)');
+    console.log('  admin@test.com             / Admin@1234             (STORE_ADMIN)');
+    console.log('  seller@test.com            / Seller@1234            (STORE_SELLER)');
+    console.log('  warehouse@test.com         / Warehouse@1234         (STORE_WAREHOUSE)');
 
     await sequelize.close();
   } catch (err) {

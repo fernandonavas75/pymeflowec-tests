@@ -4,46 +4,75 @@ const request      = require('supertest');
 const app          = require('../../pymeflowec-backend/src/app');
 const { getToken } = require('./helpers/auth');
 const { cleanTestData } = require('../setup/factories');
-const { sequelize } = require('../../pymeflowec-backend/src/config/database');
+const { Op }       = require('../../pymeflowec-backend/node_modules/sequelize');
+const { Module, CompanyModule, CompanyModuleRequest, Company } = require('../../pymeflowec-backend/src/models');
 
 let platformAdminToken;
 let adminToken;
-let viewerToken;
+let sellerToken;
 const createdIds = { moduleRequestIds: [] };
 
-// ID del módulo 'inventory' sembrado (id=3, no es default → requiere solicitud)
-const MODULE_ID = 3;
+// Module NOT active for the test company — resolved in beforeAll
+let MODULE_ID;
+let TEST_COMPANY_ID;
+
+// Seed activates modules 1-5 for the test company; extras 6 and 7 are for tests.
+// If a previous run left module 6 or 7 active, clean them before choosing.
+const SEED_MODULE_IDS = [1, 2, 3, 4, 5];
 
 beforeAll(async () => {
-  // Limpiar cualquier solicitud/módulo previo para este MODULE_ID
-  // (idempotencia entre ejecuciones: bypass FORCED RLS con row_security = off)
-  await sequelize.transaction(async (t) => {
-    await sequelize.query('SET LOCAL row_security = off', { transaction: t });
-    await sequelize.query(
-      `DELETE FROM organization_modules WHERE request_id IN
-        (SELECT id FROM module_requests WHERE module_id = ${MODULE_ID})`,
-      { transaction: t }
-    );
-    await sequelize.query(
-      `DELETE FROM module_requests WHERE module_id = ${MODULE_ID}`,
-      { transaction: t }
-    );
+  // Find the test company
+  const company = await Company.findOne({ where: { ruc: '9999900000001' } });
+  if (!company) throw new Error('Test company not found. Run npm run seed first.');
+  TEST_COMPANY_ID = company.id;
+
+  // Remove stale company_modules added by previous test runs (anything beyond seed modules)
+  await CompanyModule.destroy({
+    where: {
+      company_id: TEST_COMPANY_ID,
+      module_id:  { [Op.notIn]: SEED_MODULE_IDS },
+    },
+    force: true,
   });
 
-  [platformAdminToken, adminToken, viewerToken] = await Promise.all([
+  // Remove any stale module requests left from previous runs
+  await CompanyModuleRequest.destroy({
+    where: { company_id: TEST_COMPANY_ID },
+    force: true,
+  });
+
+  // Find any catalog module not active for this company (should be 6 or 7 after cleanup)
+  const mod = await Module.findOne({
+    where: {
+      is_active: true,
+      id: { [Op.notIn]: SEED_MODULE_IDS },
+    },
+  });
+  if (!mod) throw new Error('No inactive module found for test company. Check seeds_tesis_v4.sql.');
+  MODULE_ID = mod.id;
+
+  [platformAdminToken, adminToken, sellerToken] = await Promise.all([
     getToken('platform_admin'),
     getToken('admin'),
-    getToken('viewer'),
+    getToken('seller'),
   ]);
 });
 
 afterAll(async () => {
+  // Clean module requests created during tests
   await cleanTestData(createdIds);
+  // Clean any company_modules added by the approve test
+  if (TEST_COMPANY_ID && MODULE_ID) {
+    await CompanyModule.destroy({
+      where: { company_id: TEST_COMPANY_ID, module_id: MODULE_ID },
+      force: true,
+    });
+  }
 });
 
-// ── GET /api/module-requests (propia organización) ────────────────────────────
+// ── GET /api/module-requests ──────────────────────────────────────────────────
 describe('GET /api/module-requests', () => {
-  it('200 – admin lista solicitudes de su organización', async () => {
+  it('200 – store admin lists own company requests', async () => {
     const res = await request(app)
       .get('/api/module-requests')
       .set('Authorization', `Bearer ${adminToken}`);
@@ -53,101 +82,75 @@ describe('GET /api/module-requests', () => {
     expect(Array.isArray(res.body.data)).toBe(true);
   });
 
-  it('401 – sin token', async () => {
+  it('403 – seller cannot list module requests', async () => {
+    const res = await request(app)
+      .get('/api/module-requests')
+      .set('Authorization', `Bearer ${sellerToken}`);
+    expect(res.status).toBe(403);
+  });
+
+  it('401 – no token', async () => {
     const res = await request(app).get('/api/module-requests');
     expect(res.status).toBe(401);
   });
 });
 
-// ── GET /api/module-requests/all (platform staff) ────────────────────────────
+// ── GET /api/module-requests/all ─────────────────────────────────────────────
 describe('GET /api/module-requests/all', () => {
-  it('200 – platform admin lista todas las solicitudes', async () => {
+  it('200 – platform admin lists all requests', async () => {
     const res = await request(app)
       .get('/api/module-requests/all')
       .set('Authorization', `Bearer ${platformAdminToken}`);
 
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
+    expect(Array.isArray(res.body.data)).toBe(true);
   });
 
-  it('403 – usuario de organización no puede listar todas', async () => {
+  it('403 – store admin cannot list all requests', async () => {
     const res = await request(app)
       .get('/api/module-requests/all')
       .set('Authorization', `Bearer ${adminToken}`);
-
     expect(res.status).toBe(403);
   });
 });
 
 // ── POST /api/module-requests ─────────────────────────────────────────────────
 describe('POST /api/module-requests', () => {
-  it('201 – admin crea solicitud de activación de módulo', async () => {
+  it('201 – store admin creates module activation request', async () => {
     const res = await request(app)
       .post('/api/module-requests')
       .set('Authorization', `Bearer ${adminToken}`)
-      .send({ module_id: MODULE_ID, notes: 'Necesitamos inventario' });
+      .send({ module_id: MODULE_ID, notes: 'Necesitamos este módulo' });
 
     expect(res.status).toBe(201);
     expect(res.body.data).toHaveProperty('id');
-    expect(res.body.data.status).toBe('pending');
+    expect(res.body.data.status).toBe('PENDING');
     createdIds.moduleRequestIds.push(res.body.data.id);
   });
 
-  it('409 – no se puede crear segunda solicitud pendiente para el mismo módulo', async () => {
+  it('409 – cannot create a second PENDING request for the same module', async () => {
     const res = await request(app)
       .post('/api/module-requests')
       .set('Authorization', `Bearer ${adminToken}`)
       .send({ module_id: MODULE_ID });
-
     expect(res.status).toBe(409);
   });
 
-  it('422 – falta module_id', async () => {
+  it('400 – missing module_id', async () => {
     const res = await request(app)
       .post('/api/module-requests')
       .set('Authorization', `Bearer ${adminToken}`)
       .send({});
-
-    expect(res.status).toBe(422);
+    expect(res.status).toBe(400);
   });
-});
 
-// ── PATCH /api/module-requests/:id/cancel ────────────────────────────────────
-describe('PATCH /api/module-requests/:id/cancel', () => {
-  let requestId;
-
-  beforeAll(async () => {
-    // Crear solicitud fresca para cancelar (la anterior puede estar en uso por /approve)
+  it('403 – seller cannot create module requests', async () => {
     const res = await request(app)
       .post('/api/module-requests')
-      .set('Authorization', `Bearer ${adminToken}`)
+      .set('Authorization', `Bearer ${sellerToken}`)
       .send({ module_id: MODULE_ID });
-
-    // Puede ser 201 (si la anterior fue aprobada/rechazada) o 409 (aún pendiente)
-    if (res.status === 201) {
-      requestId = res.body.data.id;
-      createdIds.moduleRequestIds.push(requestId);
-    } else {
-      // Usar la primera creada
-      requestId = createdIds.moduleRequestIds[0];
-    }
-  });
-
-  it('200 – admin cancela su propia solicitud pendiente', async () => {
-    const res = await request(app)
-      .patch(`/api/module-requests/${requestId}/cancel`)
-      .set('Authorization', `Bearer ${adminToken}`);
-
-    expect(res.status).toBe(200);
-    expect(res.body.data.status).toBe('cancelled');
-  });
-
-  it('404 – no puede cancelar solicitud ya cancelada', async () => {
-    const res = await request(app)
-      .patch(`/api/module-requests/${requestId}/cancel`)
-      .set('Authorization', `Bearer ${adminToken}`);
-
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(403);
   });
 });
 
@@ -156,34 +159,29 @@ describe('PATCH /api/module-requests/:id/approve', () => {
   let requestId;
 
   beforeAll(async () => {
-    // Crear una solicitud pendiente nueva para aprobar
-    const res = await request(app)
-      .post('/api/module-requests')
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({ module_id: MODULE_ID });
-
-    if (res.status === 201) {
-      requestId = res.body.data.id;
-      createdIds.moduleRequestIds.push(requestId);
+    // Use the request created in POST suite, or create a fresh one
+    if (createdIds.moduleRequestIds.length) {
+      requestId = createdIds.moduleRequestIds[0];
     }
   });
 
-  it('403 – usuario de organización no puede aprobar', async () => {
+  it('403 – store admin cannot approve requests', async () => {
     if (!requestId) return;
     const res = await request(app)
       .patch(`/api/module-requests/${requestId}/approve`)
       .set('Authorization', `Bearer ${adminToken}`);
-
     expect(res.status).toBe(403);
   });
 
-  it('200 – platform admin aprueba la solicitud', async () => {
+  it('200 – platform admin approves request', async () => {
     if (!requestId) return;
     const res = await request(app)
       .patch(`/api/module-requests/${requestId}/approve`)
       .set('Authorization', `Bearer ${platformAdminToken}`);
 
     expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.status).toBe('APPROVED');
   });
 });
 
@@ -192,6 +190,7 @@ describe('PATCH /api/module-requests/:id/reject', () => {
   let requestId;
 
   beforeAll(async () => {
+    // Create a fresh PENDING request to reject
     const res = await request(app)
       .post('/api/module-requests')
       .set('Authorization', `Bearer ${adminToken}`)
@@ -203,21 +202,22 @@ describe('PATCH /api/module-requests/:id/reject', () => {
     }
   });
 
-  it('200 – platform admin rechaza la solicitud con motivo', async () => {
+  it('200 – platform admin rejects request', async () => {
     if (!requestId) return;
     const res = await request(app)
       .patch(`/api/module-requests/${requestId}/reject`)
       .set('Authorization', `Bearer ${platformAdminToken}`)
-      .send({ reason: 'No cumple requisitos' });
+      .send({ comments: 'No cumple requisitos' });
 
     expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.status).toBe('REJECTED');
   });
 
-  it('403 – usuario de organización no puede rechazar', async () => {
+  it('403 – store admin cannot reject requests', async () => {
     const res = await request(app)
-      .patch(`/api/module-requests/1/reject`)
+      .patch('/api/module-requests/1/reject')
       .set('Authorization', `Bearer ${adminToken}`);
-
     expect(res.status).toBe(403);
   });
 });

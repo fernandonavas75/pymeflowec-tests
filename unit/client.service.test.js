@@ -1,93 +1,90 @@
 'use strict';
 
-const { createMockClient, mockSequelize } = require('./helpers/mocks');
+// Tests for storeCustomer.service.js (replaces old client.service)
+const { createMockStoreCustomer, mockSequelize } = require('./helpers/mocks');
 
-// ── Mocks ─────────────────────────────────────────────────────────────────────
+jest.mock('../../pymeflowec-backend/src/config/database', () => ({
+  sequelize: mockSequelize, connectDB: jest.fn(),
+}));
 jest.mock('../../pymeflowec-backend/src/utils/logger', () => ({
   error: jest.fn(), warn: jest.fn(), info: jest.fn(), debug: jest.fn(),
 }));
 
-jest.mock('../../pymeflowec-backend/src/config/database', () => ({
-  sequelize: mockSequelize,
-  connectDB: jest.fn(),
-}));
-
 const mockModels = {
-  Client: { findOne: jest.fn(), findAndCountAll: jest.fn(), create: jest.fn() },
+  StoreCustomer: { findOne: jest.fn(), findAndCountAll: jest.fn(), create: jest.fn() },
 };
 jest.mock('../../pymeflowec-backend/src/models', () => mockModels);
 
-const clientService = require('../../pymeflowec-backend/src/services/client.service');
+const customerService = require('../../pymeflowec-backend/src/services/storeCustomer.service');
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
 beforeEach(() => jest.clearAllMocks());
 
 // ── create ────────────────────────────────────────────────────────────────────
-describe('clientService.create', () => {
-  const validData = {
-    full_name:      'Juan Perez',
-    identification: '1234567890',
-    email:          'juan@test.com',
+describe('customerService.create', () => {
+  const data = {
+    customer_type:   'CEDULA',
+    document_number: '1234567890',
+    full_name:       'Test Customer',
   };
 
-  it('crea cliente correctamente', async () => {
-    const client = createMockClient();
-    mockModels.Client.findOne.mockResolvedValue(null); // identificación libre
-    mockModels.Client.create.mockResolvedValue(client);
+  it('creates and returns the new customer', async () => {
+    const customer = createMockStoreCustomer();
+    mockModels.StoreCustomer.findOne.mockResolvedValue(null);   // no duplicate
+    mockModels.StoreCustomer.create.mockResolvedValue(customer);
 
-    const result = await clientService.create(validData, 1);
+    const result = await customerService.create(data, 1);
     expect(result).toBeDefined();
-    expect(mockModels.Client.create).toHaveBeenCalledWith(
-      expect.objectContaining({ identification: '1234567890', organization_id: 1 })
+    expect(mockModels.StoreCustomer.create).toHaveBeenCalledWith(
+      expect.objectContaining({ company_id: 1, document_number: '1234567890' })
     );
   });
 
-  it('lanza 409 si ya existe un cliente con esa identificación', async () => {
-    mockModels.Client.findOne.mockResolvedValue(createMockClient());
-    await expect(clientService.create(validData, 1)).rejects.toMatchObject({ status: 409 });
+  it('throws 409 if document_number is duplicate', async () => {
+    mockModels.StoreCustomer.findOne.mockResolvedValue(createMockStoreCustomer());
+    await expect(customerService.create(data, 1)).rejects.toMatchObject({ status: 409 });
   });
 });
 
-// ── update ─────────────────────────────────────────────────────────────────────
-describe('clientService.update', () => {
-  it('actualiza el cliente correctamente', async () => {
-    const client = createMockClient();
-    mockModels.Client.findOne.mockResolvedValue(client);
-
-    await clientService.update(1, { full_name: 'Nuevo Nombre' }, 1);
-    expect(client.update).toHaveBeenCalledWith(
-      expect.objectContaining({ full_name: 'Nuevo Nombre' })
-    );
+// ── update ────────────────────────────────────────────────────────────────────
+describe('customerService.update', () => {
+  it('updates the customer', async () => {
+    const customer = createMockStoreCustomer();
+    mockModels.StoreCustomer.findOne
+      .mockResolvedValueOnce(customer)   // find existing
+      .mockResolvedValueOnce(null);      // no duplicate doc
+    await customerService.update(1, { full_name: 'Nuevo Nombre' }, 1);
+    expect(customer.update).toHaveBeenCalled();
   });
 
-  it('lanza 409 si la nueva identificación ya está en uso', async () => {
-    const client = createMockClient({ identification: '0000000000' });
-    mockModels.Client.findOne
-      .mockResolvedValueOnce(client)          // find cliente a modificar
-      .mockResolvedValueOnce(createMockClient()); // identificación duplicada
-    await expect(
-      clientService.update(1, { identification: '1234567890' }, 1)
-    ).rejects.toMatchObject({ status: 409 });
+  it('throws 404 if customer not found', async () => {
+    mockModels.StoreCustomer.findOne.mockResolvedValue(null);
+    await expect(customerService.update(999, {}, 1)).rejects.toMatchObject({ status: 404 });
   });
 
-  it('lanza 404 si el cliente no existe', async () => {
-    mockModels.Client.findOne.mockResolvedValue(null);
-    await expect(clientService.update(999, {}, 1)).rejects.toMatchObject({ status: 404 });
+  it('throws 403 if trying to update FINAL_CONSUMER', async () => {
+    const customer = createMockStoreCustomer({ customer_type: 'FINAL_CONSUMER' });
+    mockModels.StoreCustomer.findOne.mockResolvedValue(customer);
+    await expect(customerService.update(1, { full_name: 'X' }, 1)).rejects.toMatchObject({ status: 403 });
   });
 });
 
 // ── remove ────────────────────────────────────────────────────────────────────
-describe('clientService.remove', () => {
-  it('elimina (soft delete) el cliente', async () => {
-    const client = createMockClient();
-    mockModels.Client.findOne.mockResolvedValue(client);
-
-    await clientService.remove(1, 1);
-    expect(client.destroy).toHaveBeenCalled();
+describe('customerService.remove', () => {
+  it('destroys the customer', async () => {
+    const customer = createMockStoreCustomer();
+    mockModels.StoreCustomer.findOne.mockResolvedValue(customer);
+    await customerService.remove(1, 1);
+    expect(customer.destroy).toHaveBeenCalled();
   });
 
-  it('lanza 404 si el cliente no existe', async () => {
-    mockModels.Client.findOne.mockResolvedValue(null);
-    await expect(clientService.remove(999, 1)).rejects.toMatchObject({ status: 404 });
+  it('throws 404 if customer not found', async () => {
+    mockModels.StoreCustomer.findOne.mockResolvedValue(null);
+    await expect(customerService.remove(999, 1)).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('throws 403 if trying to remove FINAL_CONSUMER', async () => {
+    const customer = createMockStoreCustomer({ customer_type: 'FINAL_CONSUMER' });
+    mockModels.StoreCustomer.findOne.mockResolvedValue(customer);
+    await expect(customerService.remove(1, 1)).rejects.toMatchObject({ status: 403 });
   });
 });
