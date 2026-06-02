@@ -16,9 +16,8 @@ const createdIds = { moduleRequestIds: [] };
 let MODULE_ID;
 let TEST_COMPANY_ID;
 
-// Seed activates modules 1-5 for the test company; extras 6 and 7 are for tests.
-// If a previous run left module 6 or 7 active, clean them before choosing.
-const SEED_MODULE_IDS = [1, 2, 3, 4, 5];
+// Populated dynamically in beforeAll from the company's currently-active modules
+let SEED_MODULE_IDS = [];
 
 beforeAll(async () => {
   // Find the test company
@@ -26,14 +25,22 @@ beforeAll(async () => {
   if (!company) throw new Error('Test company not found. Run npm run seed first.');
   TEST_COMPANY_ID = company.id;
 
-  // Remove stale company_modules added by previous test runs (anything beyond seed modules)
-  await CompanyModule.destroy({
-    where: {
-      company_id: TEST_COMPANY_ID,
-      module_id:  { [Op.notIn]: SEED_MODULE_IDS },
-    },
-    force: true,
+  // Load the seeded module IDs (those the seed activated: MOD_INVOICING, MOD_PRODUCTS, MOD_FINANCE)
+  const activeCMs = await CompanyModule.findAll({
+    where: { company_id: TEST_COMPANY_ID, is_active: true },
   });
+  SEED_MODULE_IDS = activeCMs.map(cm => Number(cm.module_id));
+
+  // Remove stale company_modules added by previous test runs (anything beyond seed modules)
+  if (SEED_MODULE_IDS.length) {
+    await CompanyModule.destroy({
+      where: {
+        company_id: TEST_COMPANY_ID,
+        module_id:  { [Op.notIn]: SEED_MODULE_IDS },
+      },
+      force: true,
+    });
+  }
 
   // Remove any stale module requests left from previous runs
   await CompanyModuleRequest.destroy({
@@ -41,14 +48,14 @@ beforeAll(async () => {
     force: true,
   });
 
-  // Find any catalog module not active for this company (should be 6 or 7 after cleanup)
+  // Find a catalog module that is NOT activated for this company (MOD_PARAMS after seed)
   const mod = await Module.findOne({
     where: {
       is_active: true,
       id: { [Op.notIn]: SEED_MODULE_IDS },
     },
   });
-  if (!mod) throw new Error('No inactive module found for test company. Check seeds_tesis_v4.sql.');
+  if (!mod) throw new Error('No inactive module found for test company. Check seeds_tesis_v10.sql.');
   MODULE_ID = mod.id;
 
   [platformAdminToken, adminToken, sellerToken] = await Promise.all([

@@ -1,6 +1,7 @@
 'use strict';
 
 module.exports = {
+  maxWorkers: 1,
   projects: [
     {
       displayName:  'unit',

@@ -4,13 +4,26 @@ const request      = require('supertest');
 const app          = require('../../pymeflowec-backend/src/app');
 const { getToken } = require('./helpers/auth');
 const { cleanTestData } = require('../setup/factories');
+const { CompanyModule, Module, Company } = require('../../pymeflowec-backend/src/models');
 
 let adminToken;
 let sellerToken;
 let warehouseToken;
 const createdIds = { supplierIds: [] };
+let _modParamsCmId = null;
 
 beforeAll(async () => {
+  const company = await Company.findOne({ where: { ruc: '9999900000001' } });
+  const mod = await Module.findOne({ where: { code: 'MOD_PARAMS' } });
+  if (company && mod) {
+    const [cm, created] = await CompanyModule.findOrCreate({
+      where:    { company_id: company.id, module_id: mod.id },
+      defaults: { is_active: true },
+    });
+    if (!cm.is_active) await cm.update({ is_active: true });
+    if (created) _modParamsCmId = cm.id;
+  }
+
   [adminToken, sellerToken, warehouseToken] = await Promise.all([
     getToken('admin'),
     getToken('seller'),
@@ -20,6 +33,9 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await cleanTestData(createdIds);
+  if (_modParamsCmId) {
+    await CompanyModule.destroy({ where: { id: _modParamsCmId }, force: true });
+  }
 });
 
 // ── GET /api/suppliers ────────────────────────────────────────────────────────

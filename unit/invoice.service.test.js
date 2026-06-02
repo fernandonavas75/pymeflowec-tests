@@ -21,11 +21,17 @@ const mockModels = {
     create:          jest.fn(),
   },
   InvoiceDetail:     { create: jest.fn() },
+  InvoicePayment:    { findAll: jest.fn().mockResolvedValue([]) },
   Product:           { findOne: jest.fn() },
   StoreCustomer:     { findOne: jest.fn() },
   User:              { findOne: jest.fn() },
   TaxRate:           { findOne: jest.fn() },
   InventoryMovement: { create: jest.fn() },
+  Company:           { findByPk: jest.fn().mockResolvedValue(null) },
+  CompanyModule:     { findOne: jest.fn().mockResolvedValue(null) },
+  Module:            {},
+  ExpenseCategory:   { findOne: jest.fn().mockResolvedValue(null), create: jest.fn() },
+  Expense:           { create: jest.fn() },
 };
 jest.mock('../../pymeflowec-backend/src/models', () => mockModels);
 
@@ -85,12 +91,16 @@ describe('invoiceService.create', () => {
 // ── cancel ────────────────────────────────────────────────────────────────────
 describe('invoiceService.cancel', () => {
   it('cancels an ISSUED invoice', async () => {
-    const invoice = createMockInvoice({ status: 'ISSUED' });
+    const invoice = createMockInvoice({ status: 'ISSUED', details: [] });
     mockModels.Invoice.findOne
-      .mockResolvedValueOnce(invoice)   // find for cancel
+      .mockResolvedValueOnce(invoice)   // lock call
+      .mockResolvedValueOnce(invoice)   // details-include call
       .mockResolvedValueOnce(invoice);  // getById after cancel
     await invoiceService.cancel(1, 1);
-    expect(invoice.update).toHaveBeenCalledWith({ status: 'CANCELLED' });
+    expect(invoice.update).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'CANCELLED', payment_status: 'PENDIENTE' }),
+      expect.anything(),
+    );
   });
 
   it('throws 400 if invoice is already CANCELLED', async () => {

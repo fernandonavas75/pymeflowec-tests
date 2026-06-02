@@ -62,8 +62,8 @@ describe('GET /api/platform/modules/active', () => {
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
     expect(Array.isArray(res.body.data)).toBe(true);
-    // Test company has at least 5 modules activated in seed
-    expect(res.body.data.length).toBeGreaterThanOrEqual(5);
+    // Test company has at least 3 modules activated in seed (MOD_INVOICING, MOD_PRODUCTS, MOD_FINANCE)
+    expect(res.body.data.length).toBeGreaterThanOrEqual(3);
   });
 
   it('401 – no token', async () => {

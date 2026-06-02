@@ -11,8 +11,19 @@ let sellerToken;
 let warehouseToken;
 const createdIds = { customerIds: [] };
 
-// document_number must be exactly 10 digits for CEDULA type
-const doc = () => String(Date.now()).slice(-10);
+// Generates a valid Ecuadorian cédula using province 17 + sequential suffix + checksum
+let _docSeq = 0;
+const doc = () => {
+  const base = '170' + String(++_docSeq).padStart(6, '0');
+  const coeff = [2, 1, 2, 1, 2, 1, 2, 1, 2];
+  let sum = 0;
+  for (let i = 0; i < 9; i++) {
+    let p = parseInt(base[i], 10) * coeff[i];
+    if (p >= 10) p -= 9;
+    sum += p;
+  }
+  return base + ((10 - (sum % 10)) % 10);
+};
 
 beforeAll(async () => {
   [adminToken, sellerToken, warehouseToken] = await Promise.all([

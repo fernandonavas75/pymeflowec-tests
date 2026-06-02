@@ -1,7 +1,7 @@
 'use strict';
 
 const {
-  User, Company, StoreCustomer, Supplier, Product, TaxRate,
+  User, Company, StoreCustomer, Supplier, Product, ProductCategory, TaxRate,
   Invoice, InvoiceDetail, CompanyModuleRequest, CompanyModule,
 } = require('../../pymeflowec-backend/src/models');
 
@@ -54,6 +54,17 @@ const createTaxRate = async (companyId, overrides = {}) => {
   });
 };
 
+const createProductCategory = async (companyId, overrides = {}) => {
+  const n = uid();
+  return ProductCategory.create({
+    company_id:  companyId,
+    name:        `Categoría Test ${n}`,
+    description: `Descripción categoría ${n}`,
+    status:      'ACTIVE',
+    ...overrides,
+  });
+};
+
 const createProduct = async (companyId, overrides = {}) => {
   const n = uid();
   return Product.create({
@@ -93,6 +104,9 @@ const cleanTestData = async (ids = {}) => {
   if (ids.productIds?.length) {
     await Product.destroy({ where: { id: ids.productIds }, force: true });
   }
+  if (ids.productCategoryIds?.length) {
+    await ProductCategory.destroy({ where: { id: ids.productCategoryIds }, force: true });
+  }
   if (ids.customerIds?.length) {
     await StoreCustomer.destroy({ where: { id: ids.customerIds }, force: true });
   }
@@ -115,6 +129,7 @@ module.exports = {
   createCustomer,
   createSupplier,
   createTaxRate,
+  createProductCategory,
   createProduct,
   createModuleRequest,
   cleanTestData,

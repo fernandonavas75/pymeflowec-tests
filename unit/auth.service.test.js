@@ -12,6 +12,12 @@ jest.mock('../../pymeflowec-backend/src/utils/logger', () => ({
   error: jest.fn(), warn: jest.fn(), info: jest.fn(), debug: jest.fn(),
 }));
 
+jest.mock('../../pymeflowec-backend/src/utils/mailer', () => ({
+  WelcomeEmail:            jest.fn().mockResolvedValue(true),
+  sendPasswordResetEmail:  jest.fn().mockResolvedValue(true),
+  verifyConnection:        jest.fn().mockResolvedValue(true),
+}));
+
 jest.mock('bcryptjs', () => ({
   compare: jest.fn(),
   hash:    jest.fn().mockResolvedValue('new_hashed_password'),
@@ -29,8 +35,10 @@ const mockModels = {
     create:   jest.fn(),
   },
   Role:          { findOne: jest.fn() },
-  Company:       { findOne: jest.fn(), create: jest.fn() },
-  StoreCustomer: { create: jest.fn() },
+  Company:         { findOne: jest.fn(), create: jest.fn() },
+  StoreCustomer:   { create: jest.fn() },
+  TaxRate:         { create: jest.fn() },
+  ExpenseCategory: { create: jest.fn() },
 };
 jest.mock('../../pymeflowec-backend/src/models', () => mockModels);
 

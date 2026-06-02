@@ -1,6 +1,6 @@
 'use strict';
 
-// Mock factory functions for v4 schema unit tests.
+// Mock factory functions for v10 schema unit tests.
 // Each function returns a fresh object with new jest.fn() stubs.
 
 const createMockRole = (overrides = {}) => ({
@@ -68,6 +68,17 @@ const createMockModuleRequest = (overrides = {}) => ({
   ...overrides,
 });
 
+const createMockProductCategory = (overrides = {}) => ({
+  id:          1,
+  company_id:  1,
+  name:        'Lácteos',
+  description: 'Productos lácteos',
+  status:      'ACTIVE',
+  update:      jest.fn().mockResolvedValue(true),
+  destroy:     jest.fn().mockResolvedValue(true),
+  ...overrides,
+});
+
 const createMockSupplier = (overrides = {}) => ({
   id:         1,
   company_id: 1,
@@ -105,12 +116,14 @@ const createMockTaxRate = (overrides = {}) => ({
 const createMockProduct = (overrides = {}) => ({
   id:             1,
   company_id:     1,
+  category_id:    null,
   name:           'Test Product',
   purchase_price: '5.00',
   sale_price:     '10.00',
   stock:          100,
   min_stock:      5,
   status:         'ACTIVE',
+  category:       null,
   supplier:       null,
   taxRate:        null,
   update:         jest.fn().mockResolvedValue(true),
@@ -161,6 +174,7 @@ module.exports = {
   createMockModule,
   createMockCompanyModule,
   createMockModuleRequest,
+  createMockProductCategory,
   createMockSupplier,
   createMockStoreCustomer,
   createMockTaxRate,

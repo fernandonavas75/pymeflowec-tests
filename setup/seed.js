@@ -1,13 +1,13 @@
 'use strict';
 
 /**
- * Seed script for the test database (schema v4).
+ * Seed script for the test database (schema v10).
  * Run once before integration tests:  npm run seed
  *
  * Prerequisites:
  *   1. CREATE DATABASE pymeflowec_test;
- *   2. psql -U postgres pymeflowec_test < schema_tesis_v4.sql
- *   3. psql -U postgres pymeflowec_test < seeds_tesis_v4.sql  (loads global roles & modules)
+ *   2. psql -U postgres pymeflowec_test < schema_tesis_v10.sql
+ *   3. psql -U postgres pymeflowec_test < seeds_tesis_v10.sql  (loads global roles & modules)
  *   4. Check .env.test (DB_NAME=pymeflowec_test)
  */
 
@@ -34,7 +34,7 @@ async function seed() {
 
     const required = ['PLATFORM_ADMIN', 'PLATFORM_SUPPORT', 'STORE_ADMIN', 'STORE_SELLER', 'STORE_WAREHOUSE'];
     for (const r of required) {
-      if (!roleMap[r]) throw new Error(`Role "${r}" not found. Run seeds_tesis_v4.sql first.`);
+      if (!roleMap[r]) throw new Error(`Role "${r}" not found. Run seeds_tesis_v10.sql first.`);
     }
 
     // ── 2. Test company ──────────────────────────────────────────────────────────
@@ -90,8 +90,8 @@ async function seed() {
       console.log('[seed] Supplier created.');
     }
 
-    // ── 6. Activate modules for test company (first 5 modules) ──────────────────
-    const activeCodes = ['MOD_INVOICING', 'MOD_INVENTORY', 'MOD_PRODUCTS', 'MOD_SUPPLIERS', 'MOD_TAX'];
+    // ── 6. Activate 3 of 4 modules for test company (MOD_PARAMS left for request tests) ──
+    const activeCodes = ['MOD_INVOICING', 'MOD_PRODUCTS', 'MOD_FINANCE'];
     const modules = await Module.findAll({ where: { is_active: true }, order: [['id', 'ASC']] });
     for (const mod of modules) {
       if (!activeCodes.includes(mod.code)) continue;
@@ -101,7 +101,7 @@ async function seed() {
       });
       if (!cm.is_active) await cm.update({ is_active: true });
     }
-    console.log('[seed] Company modules activated.');
+    console.log('[seed] Company modules activated (MOD_INVOICING, MOD_PRODUCTS, MOD_FINANCE).');
 
     // ── 7. Platform users (no company) ──────────────────────────────────────────
     const platformUsers = [

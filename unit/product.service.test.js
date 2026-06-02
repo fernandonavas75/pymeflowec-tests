@@ -1,7 +1,7 @@
 'use strict';
 
 const {
-  createMockProduct, createMockSupplier, createMockTaxRate,
+  createMockProduct, createMockProductCategory, createMockSupplier, createMockTaxRate,
   createMockInventoryMovement, mockSequelize,
 } = require('./helpers/mocks');
 
@@ -13,9 +13,10 @@ jest.mock('../../pymeflowec-backend/src/utils/logger', () => ({
 }));
 
 const mockModels = {
-  Product:           { findOne: jest.fn(), findAndCountAll: jest.fn(), create: jest.fn() },
-  Supplier:          { findOne: jest.fn() },
-  TaxRate:           { findOne: jest.fn() },
+  Product:         { findOne: jest.fn(), findAndCountAll: jest.fn(), create: jest.fn() },
+  ProductCategory: { findOne: jest.fn() },
+  Supplier:        { findOne: jest.fn() },
+  TaxRate:         { findOne: jest.fn() },
   InventoryMovement: { create: jest.fn() },
 };
 jest.mock('../../pymeflowec-backend/src/models', () => mockModels);
@@ -40,7 +41,14 @@ describe('productService.create', () => {
     );
   });
 
+  it('throws 404 if category_id does not belong to company', async () => {
+    mockModels.ProductCategory.findOne.mockResolvedValue(null);
+    await expect(productService.create({ ...data, category_id: 99 }, 1))
+      .rejects.toMatchObject({ status: 404 });
+  });
+
   it('throws 404 if supplier_id does not belong to company', async () => {
+    mockModels.ProductCategory.findOne.mockResolvedValue(createMockProductCategory());
     mockModels.Supplier.findOne.mockResolvedValue(null);
     await expect(productService.create({ ...data, supplier_id: 99 }, 1))
       .rejects.toMatchObject({ status: 404 });

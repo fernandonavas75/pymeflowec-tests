@@ -29,7 +29,7 @@ beforeEach(() => jest.clearAllMocks());
 // ── listAll ───────────────────────────────────────────────────────────────────
 describe('moduleService.listAll', () => {
   it('returns all catalog modules', async () => {
-    const modules = [createMockModule(), createMockModule({ id: 2, code: 'MOD_INVENTORY' })];
+    const modules = [createMockModule(), createMockModule({ id: 2, code: 'MOD_PRODUCTS' })];
     mockModels.Module.findAll.mockResolvedValue(modules);
 
     const result = await moduleService.listAll();
@@ -99,8 +99,8 @@ describe('moduleService.getCompanyCatalog', () => {
   });
 
   it('maps inactive modules with PENDING status when request exists', async () => {
-    const mod = createMockModule({ id: 2, code: 'MOD_REPORTS' });
-    mod.toJSON = () => ({ id: 2, code: 'MOD_REPORTS', name: 'Reportes', is_active: true });
+    const mod = createMockModule({ id: 2, code: 'MOD_PARAMS' });
+    mod.toJSON = () => ({ id: 2, code: 'MOD_PARAMS', name: 'Parámetros', is_active: true });
     const req = createMockModuleRequest({ module_id: 2, status: 'PENDING' });
 
     mockModels.Module.findAll.mockResolvedValue([mod]);
