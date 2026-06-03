@@ -167,6 +167,111 @@ const mockSequelize = {
   query: jest.fn().mockResolvedValue([[], 0]),
 };
 
+const createMockExpenseCategory = (overrides = {}) => ({
+  id:            1,
+  company_id:    1,
+  name:          'Operativo Test',
+  category_type: 'OPERATIVO',
+  description:   'Descripción test',
+  is_active:     true,
+  update:        jest.fn().mockResolvedValue(true),
+  destroy:       jest.fn().mockResolvedValue(true),
+  ...overrides,
+});
+
+const createMockExpense = (overrides = {}) => ({
+  id:                 1,
+  company_id:         1,
+  category_id:        1,
+  supplier_id:        null,
+  supplier_name_free: 'Proveedor Libre',
+  description:        'Egreso test',
+  expense_date:       '2026-01-01',
+  amount:             '100.00',
+  payment_status:     'PENDIENTE',
+  created_by:         1,
+  update:             jest.fn().mockResolvedValue(true),
+  destroy:            jest.fn().mockResolvedValue(true),
+  ...overrides,
+});
+
+const createMockExpensePayment = (overrides = {}) => ({
+  id:             1,
+  company_id:     1,
+  expense_id:     1,
+  amount:         '50.00',
+  payment_method: 'EFECTIVO',
+  status:         'PAGADO',
+  created_by:     1,
+  update:         jest.fn().mockResolvedValue(true),
+  ...overrides,
+});
+
+const createMockExpenseBudget = (overrides = {}) => ({
+  id:              1,
+  company_id:      1,
+  category_id:     1,
+  period_type:     'MONTHLY',
+  period_year:     2026,
+  period_month:    1,
+  budgeted_amount: '500.00',
+  created_by:      1,
+  update:          jest.fn().mockResolvedValue(true),
+  destroy:         jest.fn().mockResolvedValue(true),
+  ...overrides,
+});
+
+const createMockInvoicePayment = (overrides = {}) => ({
+  id:             1,
+  company_id:     1,
+  invoice_id:     1,
+  amount:         '100.00',
+  payment_method: 'EFECTIVO',
+  status:         'COBRADO',
+  created_by:     1,
+  update:         jest.fn().mockResolvedValue(true),
+  ...overrides,
+});
+
+const createMockPettyCash = (overrides = {}) => ({
+  id:              1,
+  company_id:      1,
+  name:            'Caja Chica',
+  opening_amount:  '100.00',
+  current_balance: '100.00',
+  status:          'OPEN',
+  opened_by:       1,
+  update:          jest.fn().mockResolvedValue(true),
+  ...overrides,
+});
+
+const createMockPettyCashMovement = (overrides = {}) => ({
+  id:            1,
+  company_id:    1,
+  petty_cash_id: 1,
+  movement_type: 'EXPENSE',
+  amount:        '20.00',
+  balance_after: '80.00',
+  description:   'Movimiento test',
+  created_by:    1,
+  ...overrides,
+});
+
+const createMockExpenseRecurring = (overrides = {}) => ({
+  id:                     1,
+  company_id:             1,
+  category_id:            1,
+  supplier_name_free:     'Proveedor Fijo',
+  description:            'Egreso recurrente test',
+  amount:                 '200.00',
+  day_of_month:           1,
+  is_active:              true,
+  created_by:             1,
+  update:                 jest.fn().mockResolvedValue(true),
+  destroy:                jest.fn().mockResolvedValue(true),
+  ...overrides,
+});
+
 module.exports = {
   createMockRole,
   createMockCompany,
@@ -183,4 +288,12 @@ module.exports = {
   createMockInventoryMovement,
   createMockTransaction,
   mockSequelize,
+  createMockExpenseCategory,
+  createMockExpense,
+  createMockExpensePayment,
+  createMockExpenseBudget,
+  createMockInvoicePayment,
+  createMockPettyCash,
+  createMockPettyCashMovement,
+  createMockExpenseRecurring,
 };

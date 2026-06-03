@@ -2,7 +2,8 @@
 
 const {
   User, Company, StoreCustomer, Supplier, Product, ProductCategory, TaxRate,
-  Invoice, InvoiceDetail, CompanyModuleRequest, CompanyModule,
+  Invoice, InvoiceDetail, InvoicePayment, InventoryMovement, CompanyModuleRequest, CompanyModule,
+  Expense, ExpenseCategory, ExpensePayment, PettyCash, PettyCashMovement,
 } = require('../../pymeflowec-backend/src/models');
 
 // ── Credentials for seed users ────────────────────────────────────────────────
@@ -79,6 +80,32 @@ const createProduct = async (companyId, overrides = {}) => {
   });
 };
 
+const createExpenseCategory = async (companyId, overrides = {}) => {
+  const n = uid();
+  return ExpenseCategory.create({
+    company_id:    companyId,
+    name:          `Categoría Egreso Test ${n}`,
+    category_type: 'OPERATIVO',
+    description:   `Descripción egreso ${n}`,
+    is_active:     true,
+    ...overrides,
+  });
+};
+
+const createExpense = async (companyId, categoryId, createdBy, overrides = {}) => {
+  const n = uid();
+  return Expense.create({
+    company_id:    companyId,
+    category_id:   categoryId,
+    description:   `Egreso Test ${n}`,
+    amount:        50.00,
+    expense_date:  new Date().toISOString().split('T')[0],
+    payment_status: 'PENDIENTE',
+    created_by:    createdBy,
+    ...overrides,
+  });
+};
+
 const createModuleRequest = async (companyId, moduleId, requestedBy, overrides = {}) => {
   return CompanyModuleRequest.create({
     company_id:   companyId,
@@ -97,11 +124,31 @@ const cleanTestData = async (ids = {}) => {
   if (ids.companyModuleIds?.length) {
     await CompanyModule.destroy({ where: { id: ids.companyModuleIds }, force: true });
   }
+  if (ids.pettyCashIds?.length) {
+    await PettyCashMovement.destroy({ where: { petty_cash_id: ids.pettyCashIds }, force: true });
+    await PettyCash.destroy({ where: { id: ids.pettyCashIds }, force: true });
+  }
+  if (ids.invoicePaymentIds?.length) {
+    await InvoicePayment.destroy({ where: { id: ids.invoicePaymentIds }, force: true });
+  }
   if (ids.invoiceIds?.length) {
+    await InvoicePayment.destroy({ where: { invoice_id: ids.invoiceIds }, force: true });
     await InvoiceDetail.destroy({ where: { invoice_id: ids.invoiceIds }, force: true });
     await Invoice.destroy({ where: { id: ids.invoiceIds }, force: true });
   }
+  if (ids.expensePaymentIds?.length) {
+    await ExpensePayment.destroy({ where: { id: ids.expensePaymentIds }, force: true });
+  }
+  if (ids.expenseIds?.length) {
+    await ExpensePayment.destroy({ where: { expense_id: ids.expenseIds }, force: true });
+    await Expense.destroy({ where: { id: ids.expenseIds }, force: true });
+  }
+  if (ids.expenseCategoryIds?.length) {
+    await ExpenseCategory.destroy({ where: { id: ids.expenseCategoryIds }, force: true });
+  }
   if (ids.productIds?.length) {
+    await InventoryMovement.destroy({ where: { product_id: ids.productIds }, force: true });
+    await InvoiceDetail.destroy({ where: { product_id: ids.productIds }, force: true });
     await Product.destroy({ where: { id: ids.productIds }, force: true });
   }
   if (ids.productCategoryIds?.length) {
@@ -131,6 +178,8 @@ module.exports = {
   createTaxRate,
   createProductCategory,
   createProduct,
+  createExpenseCategory,
+  createExpense,
   createModuleRequest,
   cleanTestData,
 };
