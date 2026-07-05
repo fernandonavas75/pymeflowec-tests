@@ -5,6 +5,7 @@ const request      = require('supertest');
 const app          = require('../../pymeflowec-backend/src/app');
 const { getToken } = require('./helpers/auth');
 const { User }     = require('../../pymeflowec-backend/src/models');
+const closeDb      = require('../setup/closeDb');
 
 let platformAdminToken;
 let adminToken;
@@ -21,6 +22,7 @@ afterAll(async () => {
   if (createdUserIds.length) {
     await User.destroy({ where: { id: createdUserIds }, force: true });
   }
+  await closeDb();
 });
 
 // ── GET /api/platform/roles ───────────────────────────────────────────────────

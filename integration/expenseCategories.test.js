@@ -5,6 +5,7 @@ const request      = require('supertest');
 const app          = require('../../pymeflowec-backend/src/app');
 const { getToken } = require('./helpers/auth');
 const { cleanTestData } = require('../setup/factories');
+const closeDb           = require('../setup/closeDb');
 
 let adminToken;
 let sellerToken;
@@ -21,6 +22,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await cleanTestData(createdIds);
+  await closeDb();
 });
 
 // ── GET /api/expense-categories ───────────────────────────────────────────────

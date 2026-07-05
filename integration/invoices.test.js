@@ -6,6 +6,7 @@ const app          = require('../../pymeflowec-backend/src/app');
 const { getToken } = require('./helpers/auth');
 const { StoreCustomer } = require('../../pymeflowec-backend/src/models');
 const { cleanTestData, createProduct } = require('../setup/factories');
+const closeDb = require('../setup/closeDb');
 
 let adminToken;
 let sellerToken;
@@ -56,6 +57,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await cleanTestData(createdIds);
+  await closeDb();
 });
 
 // ── GET /api/invoices ─────────────────────────────────────────────────────────
@@ -98,7 +100,7 @@ describe('POST /api/invoices', () => {
     expect(res.status).toBe(201);
     expect(res.body.data).toHaveProperty('id');
     expect(res.body.data).toHaveProperty('invoice_number');
-    expect(parseFloat(res.body.data.total)).toBeGreaterThan(0);
+    expect(Number.parseFloat(res.body.data.total)).toBeGreaterThan(0);
     createdIds.invoiceIds.push(res.body.data.id);
   });
 
@@ -121,12 +123,12 @@ describe('POST /api/invoices', () => {
     expect(res.status).toBe(403);
   });
 
-  it('400 – missing items array', async () => {
+  it('422 – missing items array', async () => {
     const res = await request(app)
       .post('/api/invoices')
       .set('Authorization', `Bearer ${adminToken}`)
       .send({ customer_id: customerId, items: [] });
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(422);
   });
 
   it('404 – product not found', async () => {

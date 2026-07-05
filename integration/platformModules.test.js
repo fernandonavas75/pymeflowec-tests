@@ -3,6 +3,7 @@
 const request      = require('supertest');
 const app          = require('../../pymeflowec-backend/src/app');
 const { getToken } = require('./helpers/auth');
+const closeDb      = require('../setup/closeDb');
 
 let platformAdminToken;
 let adminToken;
@@ -12,6 +13,10 @@ beforeAll(async () => {
     getToken('platform_admin'),
     getToken('admin'),
   ]);
+});
+
+afterAll(async () => {
+  await closeDb();
 });
 
 // ── GET /api/platform/modules/public (no auth) ────────────────────────────────

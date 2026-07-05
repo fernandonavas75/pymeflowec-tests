@@ -291,6 +291,7 @@ Revisar el archivo `.env.test` y ajustar las credenciales si es necesario (ver s
 ### Paso 4 — Sembrar datos de prueba
 
 ```bash
+npm run db:reset
 npm run seed
 ```
 

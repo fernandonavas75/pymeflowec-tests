@@ -86,6 +86,53 @@ describe('invoiceService.create', () => {
       expect.anything()
     );
   });
+
+  it('throws 404 if customer_id does not belong to the company', async () => {
+    mockModels.StoreCustomer.findOne.mockResolvedValue(null);
+    await expect(invoiceService.create({ customer_id: 999, items: [baseItem] }, 1, 1))
+      .rejects.toMatchObject({ status: 404 });
+    expect(mockModels.StoreCustomer.findOne).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 999, company_id: 1 } })
+    );
+  });
+
+  it('throws 400 if item quantity is not a positive integer', async () => {
+    mockModels.StoreCustomer.findOne.mockResolvedValue(createMockStoreCustomer());
+    await expect(invoiceService.create(
+      { customer_id: 1, items: [{ ...baseItem, quantity: 0 }] }, 1, 1
+    )).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('throws 400 if item discount is negative', async () => {
+    const product = createMockProduct({ stock: 10, sale_price: '10.00', tax_rate_id: null });
+    mockModels.Product.findOne.mockResolvedValue(product);
+    await expect(invoiceService.create(
+      { items: [{ ...baseItem, discount: -1 }] }, 1, 1
+    )).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('ignores the client-supplied unit_price and always uses the product sale_price', async () => {
+    const product = createMockProduct({ stock: 10, sale_price: '25.00', tax_rate_id: null });
+    const invoice = createMockInvoice({ id: 1 });
+
+    mockModels.Product.findOne
+      .mockResolvedValueOnce(product)
+      .mockResolvedValueOnce(product);
+    mockModels.Invoice.findOne
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(invoice);
+    mockModels.Invoice.create.mockResolvedValue({ id: 1 });
+    mockModels.InvoiceDetail.create.mockResolvedValue({});
+    mockModels.InventoryMovement.create.mockResolvedValue({});
+
+    // The client tries to send unit_price: 1.00 for a product whose real sale_price is 25.00
+    await invoiceService.create({ items: [{ product_id: 1, quantity: 2, unit_price: 1.00 }] }, 1, 1);
+
+    expect(mockModels.InvoiceDetail.create).toHaveBeenCalledWith(
+      expect.objectContaining({ unit_price: 25.00 }),
+      expect.anything()
+    );
+  });
 });
 
 // ── cancel ────────────────────────────────────────────────────────────────────

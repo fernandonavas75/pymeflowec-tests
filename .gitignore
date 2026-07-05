@@ -3,3 +3,6 @@ logs/combined.log
 /.claude
 /logs
 /logs
+/logs
+/coverage
+/.idea

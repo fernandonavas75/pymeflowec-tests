@@ -6,6 +6,7 @@ const app          = require('../../pymeflowec-backend/src/app');
 const { getToken } = require('./helpers/auth');
 const { StoreCustomer } = require('../../pymeflowec-backend/src/models');
 const { cleanTestData, createProduct } = require('../setup/factories');
+const closeDb = require('../setup/closeDb');
 
 let adminToken;
 let sellerToken;
@@ -54,6 +55,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await cleanTestData(createdIds);
+  await closeDb();
 });
 
 // ── GET /api/invoice-payments ─────────────────────────────────────────────────

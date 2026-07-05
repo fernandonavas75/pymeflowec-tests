@@ -4,6 +4,7 @@ const request      = require('supertest');
 const app          = require('../../pymeflowec-backend/src/app');
 const { getToken } = require('./helpers/auth');
 const { cleanTestData } = require('../setup/factories');
+const closeDb           = require('../setup/closeDb');
 const { Op }       = require('../../pymeflowec-backend/node_modules/sequelize');
 const { Module, CompanyModule, CompanyModuleRequest, Company } = require('../../pymeflowec-backend/src/models');
 
@@ -75,6 +76,7 @@ afterAll(async () => {
       force: true,
     });
   }
+  await closeDb();
 });
 
 // ── GET /api/module-requests ──────────────────────────────────────────────────

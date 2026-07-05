@@ -8,7 +8,8 @@
     "test:unit": "jest --selectProjects unit",
     "test:integration": "jest --selectProjects integration",
     "test:coverage": "jest --coverage",
-    "seed": "node setup/seed.js"
+    "seed": "node setup/seed.js",
+    "db:reset": "node setup/reset.js"
   },
   "devDependencies": {
     "bcryptjs": "^3.0.3",

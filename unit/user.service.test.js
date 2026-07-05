@@ -12,6 +12,10 @@ jest.mock('bcryptjs', () => ({
   compare: jest.fn(),
   hash:    jest.fn().mockResolvedValue('new_hashed'),
 }));
+jest.mock('../../pymeflowec-backend/src/utils/mailer', () => ({
+  sendPasswordResetEmail: jest.fn().mockResolvedValue(undefined),
+  WelcomeEmail:            jest.fn().mockResolvedValue(undefined),
+}));
 
 const mockModels = {
   User: { findOne: jest.fn(), findAndCountAll: jest.fn(), create: jest.fn() },
@@ -21,6 +25,7 @@ jest.mock('../../pymeflowec-backend/src/models', () => mockModels);
 
 const userService = require('../../pymeflowec-backend/src/services/user.service');
 const bcrypt      = require('bcryptjs');
+const { sendPasswordResetEmail } = require('../../pymeflowec-backend/src/utils/mailer');
 
 beforeEach(() => jest.clearAllMocks());
 
@@ -97,6 +102,43 @@ describe('userService.changePassword', () => {
     mockModels.User.findOne.mockResolvedValue(null);
     await expect(userService.changePassword(999, 'pass', 'New@1234', 1))
       .rejects.toMatchObject({ status: 404 });
+  });
+});
+
+// ── forgotPassword ────────────────────────────────────────────────────────────
+describe('userService.forgotPassword', () => {
+  const genericMessage = 'Si el correo está registrado, recibirás un enlace de recuperación.';
+
+  it('returns the generic message and sends the email when the user exists', async () => {
+    const user = createMockUser({ email: 'exists@test.com' });
+    mockModels.User.findOne.mockResolvedValue(user);
+
+    const result = await userService.forgotPassword('exists@test.com');
+
+    expect(result.message).toBe(genericMessage);
+    expect(user.update).toHaveBeenCalledWith(
+      expect.objectContaining({ reset_token: expect.any(String), reset_token_expires: expect.any(Date) })
+    );
+    expect(sendPasswordResetEmail).toHaveBeenCalled();
+  });
+
+  it('returns the same generic message without throwing when the user does not exist (anti email-enumeration)', async () => {
+    mockModels.User.findOne.mockResolvedValue(null);
+
+    const result = await userService.forgotPassword('noexiste@test.com');
+
+    expect(result.message).toBe(genericMessage);
+    expect(sendPasswordResetEmail).not.toHaveBeenCalled();
+  });
+
+  it('returns the generic message even if the mailer fails', async () => {
+    const user = createMockUser({ email: 'exists@test.com' });
+    mockModels.User.findOne.mockResolvedValue(user);
+    sendPasswordResetEmail.mockRejectedValueOnce(new Error('SMTP down'));
+
+    const result = await userService.forgotPassword('exists@test.com');
+
+    expect(result.message).toBe(genericMessage);
   });
 });
 

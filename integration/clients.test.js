@@ -5,6 +5,7 @@ const request      = require('supertest');
 const app          = require('../../pymeflowec-backend/src/app');
 const { getToken } = require('./helpers/auth');
 const { cleanTestData } = require('../setup/factories');
+const closeDb           = require('../setup/closeDb');
 
 let adminToken;
 let sellerToken;
@@ -18,7 +19,7 @@ const doc = () => {
   const coeff = [2, 1, 2, 1, 2, 1, 2, 1, 2];
   let sum = 0;
   for (let i = 0; i < 9; i++) {
-    let p = parseInt(base[i], 10) * coeff[i];
+    let p = Number.parseInt(base[i], 10) * coeff[i];
     if (p >= 10) p -= 9;
     sum += p;
   }
@@ -35,6 +36,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await cleanTestData(createdIds);
+  await closeDb();
 });
 
 // ── GET /api/customers ────────────────────────────────────────────────────────

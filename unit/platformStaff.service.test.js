@@ -25,7 +25,7 @@ beforeEach(() => jest.clearAllMocks());
 
 // ── create ────────────────────────────────────────────────────────────────────
 describe('taxRateService.create', () => {
-  const data = { tax_name: 'IVA 15%', percentage: 15.00, valid_from: '2024-01-01' };
+  const data = { tax_name: 'IVA 15%', percentage: 15, valid_from: '2024-01-01' };
 
   it('creates a tax rate', async () => {
     const taxRate = createMockTaxRate();
@@ -34,7 +34,7 @@ describe('taxRateService.create', () => {
     const result = await taxRateService.create(data, 1);
     expect(result).toBeDefined();
     expect(mockModels.TaxRate.create).toHaveBeenCalledWith(
-      expect.objectContaining({ company_id: 1, tax_name: 'IVA 15%', percentage: 15.00 })
+      expect.objectContaining({ company_id: 1, tax_name: 'IVA 15%', percentage: 15 })
     );
   });
 });
@@ -61,9 +61,9 @@ describe('taxRateService.update', () => {
     const taxRate = createMockTaxRate();
     mockModels.TaxRate.findOne.mockResolvedValue(taxRate);
 
-    await taxRateService.update(1, { percentage: 12.00, is_active: false }, 1);
+    await taxRateService.update(1, { percentage: 12, is_active: false }, 1);
     expect(taxRate.update).toHaveBeenCalledWith(
-      expect.objectContaining({ percentage: 12.00, is_active: false })
+      expect.objectContaining({ percentage: 12, is_active: false })
     );
   });
 

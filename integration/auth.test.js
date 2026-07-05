@@ -1,7 +1,20 @@
 'use strict';
 
+// Mailer is mocked: the register flow sends a WelcomeEmail, which would otherwise
+// try to reach the real SMTP host and hang long enough to keep Jest from exiting.
+jest.mock('../../pymeflowec-backend/src/utils/mailer', () => ({
+  sendPasswordResetEmail: jest.fn().mockResolvedValue(true),
+  WelcomeEmail:           jest.fn().mockResolvedValue(true),
+  verifyConnection:       jest.fn().mockResolvedValue(undefined),
+}));
+
 const request = require('supertest');
 const app     = require('../../pymeflowec-backend/src/app');
+const closeDb = require('../setup/closeDb');
+
+afterAll(async () => {
+  await closeDb();
+});
 
 // ── POST /api/auth/login ──────────────────────────────────────────────────────
 describe('POST /api/auth/login', () => {
@@ -162,6 +175,19 @@ describe('POST /api/auth/register', () => {
     expect(res.status).toBe(409);
   });
 
+  it ('409 - company ruc already registered', async () => {
+    const res = await request(app)
+      .post('/api/auth/register')
+      .send({
+        company_name: 'Another Company',
+        full_name:    'Another Owner',
+        email:        'owner2@test.com',
+        password:     'Password@123',
+        ruc: '1790012345001', // RUC used by seed company
+      });
+    expect(res.status).toBe(409);
+  });
+
   it('422 – missing company_name', async () => {
     const res = await request(app)
       .post('/api/auth/register')
@@ -176,6 +202,7 @@ describe('POST /api/auth/register', () => {
     expect(res.status).toBe(422);
   });
 });
+
 
 // ── PATCH /api/auth/change-password ──────────────────────────────────────────
 describe('PATCH /api/auth/change-password', () => {

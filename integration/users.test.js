@@ -1,11 +1,21 @@
 'use strict';
 
 // Tests for /api/users (User resource — store users managed by STORE_ADMIN)
+// Mailer is mocked: forgot-password tests would otherwise try to reach the
+// real SMTP host with fake credentials, which hangs long enough to blow past
+// Jest's test timeout.
+jest.mock('../../pymeflowec-backend/src/utils/mailer', () => ({
+  sendPasswordResetEmail: jest.fn().mockResolvedValue(true),
+  WelcomeEmail:           jest.fn().mockResolvedValue(true),
+  verifyConnection:       jest.fn().mockResolvedValue(undefined),
+}));
+
 const request      = require('supertest');
 const app          = require('../../pymeflowec-backend/src/app');
 const { getToken } = require('./helpers/auth');
 const { Role }     = require('../../pymeflowec-backend/src/models');
 const { cleanTestData } = require('../setup/factories');
+const closeDb           = require('../setup/closeDb');
 
 let adminToken;
 let sellerToken;
@@ -25,6 +35,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await cleanTestData(createdIds);
+  await closeDb();
 });
 
 // ── GET /api/users ────────────────────────────────────────────────────────────
@@ -286,11 +297,12 @@ describe('POST /api/users/forgot-password', () => {
     expect(res.body.success).toBe(true);
   });
 
-  it('404 – unknown email returns not found', async () => {
+  it('200 – unknown email returns same generic ok (no enumeration)', async () => {
     const res = await request(app)
       .post('/api/users/forgot-password')
       .send({ email: 'noexiste@example.com' });
 
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
   });
 });
